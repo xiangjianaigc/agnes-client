@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Agnes AI 画布</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #1e1e1e; font-family: sans-serif; color: #fff; }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
+        #grid { position: absolute; width: 100%; height: 100%; background-image: radial-gradient(#333 1px, transparent 1px); background-size: 20px 20px; }
+        .node { position: absolute; background: #2b2b2b; border: 1px solid #444; border-radius: 8px; padding: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); cursor: grab; user-select: none; }
+        .node img { max-width: 300px; border-radius: 4px; display: block; }
+        .node textarea { width: 280px; height: 60px; background: #1e1e1e; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 5px; resize: none; margin-bottom: 5px; }
+        .node button { background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; width: 100%; }
+        .node button:hover { background: #2563eb; }
+        .toolbar { position: fixed; top: 20px; left: 20px; z-index: 1000; background: #2b2b2b; padding: 10px; border-radius: 8px; border: 1px solid #444; }
+        .toolbar button { background: #10b981; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <button onclick="addTextNode()">+ 新建生成节点</button>
+        <span style="font-size: 12px; margin-left: 10px; color: #aaa;">拖拽本地图片到画布可作为参考图</span>
+    </div>
+    <div id="canvas-container">
+        <div id="grid"></div>
+    </div>
+
+    <script>
+        let scale = 1;
+        let translateX = 0, translateY = 0;
+        const container = document.getElementById('canvas-container');
+        const grid = document.getElementById('grid');
+        let isDragging = false;
+        let startX, startY;
+
+        // 画布平移和缩放
+        container.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.node')) return;
+            isDragging = true;
+            startX = e.clientX - translateX;
+            startY = e.clientY - translateY;
+            container.style.cursor = 'grabbing';
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            translateX = e.clientX - startX;
+            translateY = e.clientY - startY;
+            updateTransform();
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+            container.style.cursor = 'default';
+        });
+
+        container.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoom = e.deltaY > 0 ? 0.9 : 1.1;
+            scale *= zoom;
+            scale = Math.max(0.1, Math.min(scale, 5));
+            updateTransform();
+        });
+
+        function updateTransform() {
+            grid.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+            document.querySelectorAll('.node').forEach(node => {
+                node.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+            });
+        }
+
+        // 新建节点
+        let nodeCount = 0;
+        function addTextNode() {
+            const node = document.createElement('div');
+            node.className = 'node';
+            node.style.left = '100px';
+            node.style.top = '100px';
+            node.innerHTML = `
+                <textarea placeholder="输入提示词，支持 @图片 引用上传的图片"></textarea>
+                <button onclick="generate(this)">生成</button>
+            `;
+            document.body.appendChild(node);
+            makeDraggable(node);
+            updateTransform();
+        }
+
+        // 节点拖拽
+        function makeDraggable(elmnt) {
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+            elmnt.onmousedown = dragMouseDown;
+            function dragMouseDown(e) {
+                if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON') return;
+                e.preventDefault();
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+            }
+            function elementDrag(e) {
+                e.preventDefault();
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                elmnt.style.top = (elmnt.offsetTop - pos2) + "px";
+                elmnt.style.left = (elmnt.offsetLeft - pos1) + "px";
+            }
+            function closeDragElement() {
+                document.onmouseup = null;
+                document.onmousemove = null;
+            }
+        }
+
+        // 调用 Python 后端生成图片
+        async function generate(btn) {
+            const node = btn.parentElement;
+            const prompt = node.querySelector('textarea').value;
+            btn.innerText = '生成中...';
+            btn.disabled = true;
+            try {
+                // 调用 PyWebview 暴露的 Python 接口
+                const result = await window.pywebview.api.generate_image(prompt);
+                if (result.status === 'success') {
+                    const img = document.createElement('img');
+                    img.src = result.url;
+                    node.appendChild(img);
+                } else {
+                    alert('失败: ' + result.message);
+                }
+            } catch (err) {
+                alert('调用出错: ' + err);
+            }
+            btn.innerText = '生成';
+            btn.disabled = false;
+        }
+
+        // 拖拽上传图片
+        document.addEventListener('dragover', (e) => e.preventDefault());
+        document.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    const base64 = event.target.result;
+                    // 在鼠标位置生成一个新节点显示图片
+                    const node = document.createElement('div');
+                    node.className = 'node';
+                    node.style.left = (e.clientX - translateX) / scale + 'px';
+                    node.style.top = (e.clientY - translateY) / scale + 'px';
+                    node.innerHTML = `<img src="${base64}"><div style="font-size:12px;text-align:center;margin-top:5px;color:#10b981;">参考图 (拖拽完成)</div>`;
+                    document.body.appendChild(node);
+                    makeDraggable(node);
+                    updateTransform();
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    </script>
+</body>
+</html>
