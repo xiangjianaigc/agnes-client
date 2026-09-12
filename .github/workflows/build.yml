@@ -21,14 +21,15 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests pyinstaller
+          pip install requests pywebview pyinstaller
 
       - name: Build EXE
         run: |
-          pyinstaller -F -w --name AgnesClient agnes_client.py
+          # 注意：Windows 下 --add-data 的参数分隔符是分号 ";"，表示把 index.html 打包到 exe 同级目录
+          pyinstaller -F -w --name AgnesCanvas --add-data "index.html;." main.py
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
-          name: AgnesClient-windows
-          path: dist/AgnesClient.exe
+          name: AgnesCanvas-windows
+          path: dist/AgnesCanvas.exe
