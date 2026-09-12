@@ -1,162 +1,720 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <title>Agnes AI 画布</title>
-    <style>
-        body { margin: 0; overflow: hidden; background: #1e1e1e; font-family: sans-serif; color: #fff; }
-        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
-        #grid { position: absolute; width: 100%; height: 100%; background-image: radial-gradient(#333 1px, transparent 1px); background-size: 20px 20px; }
-        .node { position: absolute; background: #2b2b2b; border: 1px solid #444; border-radius: 8px; padding: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); cursor: grab; user-select: none; }
-        .node img { max-width: 300px; border-radius: 4px; display: block; }
-        .node textarea { width: 280px; height: 60px; background: #1e1e1e; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 5px; resize: none; margin-bottom: 5px; }
-        .node button { background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; width: 100%; }
-        .node button:hover { background: #2563eb; }
-        .toolbar { position: fixed; top: 20px; left: 20px; z-index: 1000; background: #2b2b2b; padding: 10px; border-radius: 8px; border: 1px solid #444; }
-        .toolbar button { background: #10b981; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
-    </style>
+<meta charset="utf-8">
+<title>Agnes AI</title>
+<style>
+:root{
+  --nav1:#1a1a24; --nav2:#fafbfc; --content:#ffffff;
+  --text:#1a1a1a; --dim:#888; --accent:#3b82f6;
+  --border:#e5e7eb; --canvas:#0f0f12; --panel:#1c1c22;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;overflow:hidden;background:var(--content);color:var(--text);}
+#app{display:flex;height:100vh;}
+
+/* 一级导航 */
+#nav1{width:80px;background:var(--nav1);display:flex;flex-direction:column;align-items:center;padding-top:16px;flex-shrink:0;}
+.nav-item{width:64px;height:64px;margin-bottom:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#666;font-size:11px;cursor:pointer;border-radius:12px;transition:.2s;}
+.nav-item:hover{color:#fff;background:rgba(255,255,255,.06);}
+.nav-item.active{color:#fff;background:rgba(59,130,246,.22);}
+.nav-item .ico{font-size:22px;margin-bottom:2px;}
+
+/* 二级项目列表 */
+#nav2{width:260px;background:var(--nav2);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;}
+.new-task{margin:16px;padding:12px;background:#fff;border:1px solid var(--border);border-radius:8px;color:var(--accent);font-weight:600;text-align:center;cursor:pointer;transition:.2s;font-size:14px;}
+.new-task:hover{background:#eff6ff;border-color:var(--accent);}
+.section-label{padding:0 20px;color:#999;font-size:11px;margin-top:10px;margin-bottom:6px;}
+#project-list{flex:1;overflow-y:auto;padding:0 10px 20px;}
+.proj{padding:10px 12px;border-radius:8px;cursor:pointer;color:#555;font-size:13.5px;display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;}
+.proj:hover{background:#e5e7eb;}
+.proj.active{background:#dbeafe;color:var(--accent);font-weight:500;}
+.proj .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
+.proj .del{color:#bbb;font-size:12px;padding:2px 6px;border-radius:4px;visibility:hidden;}
+.proj:hover .del{visibility:visible;}
+.proj .del:hover{color:#e11d48;background:#fff;}
+.empty-tip{color:#aaa;font-size:12px;text-align:center;margin-top:30px;}
+
+/* 内容区 */
+#content{flex:1;position:relative;overflow:hidden;background:var(--content);}
+.view{position:absolute;inset:0;display:none;flex-direction:column;}
+.view.active{display:flex;}
+
+/* 空状态 */
+.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#999;}
+.empty-state .icon{font-size:56px;margin-bottom:16px;opacity:.35;}
+.empty-state .title{font-size:15px;color:#666;margin-bottom:6px;}
+.empty-state .desc{font-size:12px;color:#aaa;}
+
+/* 历史记录区 */
+.history{flex:1;overflow-y:auto;padding:24px 10%;display:none;}
+.history.has-content{display:block;}
+.history.has-content ~ .empty-state{display:none;}
+
+/* 消息气泡 */
+.msg{max-width:80%;margin-bottom:16px;padding:12px 16px;border-radius:12px;line-height:1.7;font-size:14px;white-space:pre-wrap;word-wrap:break-word;}
+.msg.user{background:#dbeafe;margin-left:auto;}
+.msg.ai{background:#f3f4f6;}
+
+/* 底部输入面板 */
+.input-panel{padding:16px 8%;border-top:1px solid #f0f0f0;background:#fff;}
+.input-box{border:1px solid #e0e0e0;border-radius:14px;padding:14px 16px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.03);transition:.2s;}
+.input-box:focus-within{border-color:var(--accent);box-shadow:0 2px 14px rgba(59,130,246,.1);}
+.input-box textarea{width:100%;border:none;outline:none;resize:none;font-family:inherit;font-size:14px;min-height:48px;max-height:200px;line-height:1.5;background:transparent;}
+.input-toolbar{display:flex;gap:8px;align-items:center;padding-top:10px;flex-wrap:wrap;}
+.tb-btn{padding:6px 10px;background:#f5f5f5;border:none;border-radius:8px;cursor:pointer;font-size:12px;color:#555;display:flex;align-items:center;gap:4px;transition:.15s;font-family:inherit;}
+.tb-btn:hover{background:#e8e8e8;}
+.tb-btn.primary{background:var(--accent);color:#fff;margin-left:auto;padding:8px 20px;font-weight:600;}
+.tb-btn.primary:hover{background:#2563eb;}
+.tb-btn.primary:disabled{opacity:.5;cursor:not-allowed;}
+.tb-select{padding:6px 8px;background:#f5f5f5;border:none;border-radius:8px;cursor:pointer;font-size:12px;color:#555;outline:none;font-family:inherit;}
+.upload-box{width:44px;height:44px;border:1px dashed #ccc;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#aaa;font-size:20px;transition:.15s;flex-shrink:0;}
+.upload-box:hover{border-color:var(--accent);color:var(--accent);}
+.upload-box.has-img{border-style:solid;border-color:var(--accent);padding:0;overflow:hidden;}
+.upload-box img{width:100%;height:100%;object-fit:cover;}
+.input-row{display:flex;gap:12px;align-items:flex-start;}
+.input-main{flex:1;}
+
+/* 图片画廊 */
+.gallery{padding:20px 8%;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;overflow-y:auto;flex:1;}
+.gallery img{width:100%;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,.08);cursor:pointer;transition:.2s;}
+.gallery img:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,.12);}
+
+/* 视频列表 */
+.vid-list{padding:20px 8%;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;overflow-y:auto;flex:1;}
+.vid-card{background:#f9fafb;border-radius:10px;overflow:hidden;border:1px solid var(--border);}
+.vid-card video{width:100%;display:block;}
+.vid-card .info{padding:10px 12px;font-size:12px;color:#666;}
+
+/* 画布 */
+#canvas-view{background:var(--canvas);color:#e0e0e0;}
+#canvas-wrap{flex:1;position:relative;overflow:hidden;}
+#grid{position:absolute;inset:0;background-image:radial-gradient(#2a2a32 1px,transparent 1px);background-size:20px 20px;transform-origin:0 0;pointer-events:none;}
+#nodes-layer{position:absolute;inset:0;transform-origin:0 0;}
+.node{position:absolute;background:var(--panel);border:1px solid #333;border-radius:10px;width:320px;box-shadow:0 10px 30px rgba(0,0,0,.6);}
+.node-header{padding:10px 14px;background:rgba(255,255,255,.03);border-bottom:1px solid #333;font-size:12px;color:#888;display:flex;justify-content:space-between;cursor:grab;border-radius:10px 10px 0 0;}
+.node-body{padding:14px;display:flex;flex-direction:column;gap:8px;}
+.node textarea{width:100%;height:70px;background:#0f0f12;color:#fff;border:1px solid #333;border-radius:6px;padding:8px;resize:none;outline:none;font-family:inherit;font-size:13px;}
+.node button{background:var(--accent);color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;}
+.node img{max-width:100%;border-radius:6px;}
+#canvas-bottom{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid #333;border-radius:12px;padding:8px 16px;display:flex;gap:10px;align-items:center;z-index:50;box-shadow:0 10px 30px rgba(0,0,0,.5);}
+.tool-btn{background:transparent;border:none;color:#ccc;cursor:pointer;padding:6px 10px;border-radius:6px;font-size:13px;}
+.tool-btn:hover{background:rgba(255,255,255,.1);color:#fff;}
+.tool-btn.primary{background:var(--accent);color:#fff;font-weight:500;padding:6px 14px;}
+
+/* 右键菜单 */
+#ctx-menu{position:fixed;background:var(--panel);border:1px solid #333;border-radius:8px;padding:6px;width:190px;z-index:1000;display:none;flex-direction:column;box-shadow:0 10px 30px rgba(0,0,0,.6);}
+.ctx-item{padding:9px 12px;border-radius:6px;color:#e0e0e0;font-size:13px;cursor:pointer;}
+.ctx-item:hover{background:#2a2a32;}
+
+/* 通用弹窗 */
+.modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:2000;}
+.modal-mask.show{display:flex;}
+.modal{background:#fff;border-radius:12px;width:520px;padding:26px;display:flex;flex-direction:column;gap:16px;box-shadow:0 20px 40px rgba(0,0,0,.2);}
+.modal h3{font-size:16px;margin-bottom:4px;}
+.modal .form-row{display:flex;flex-direction:column;gap:6px;}
+.modal label{font-size:12px;color:#666;}
+.modal input{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;outline:none;font-family:inherit;font-size:13px;}
+.modal input:focus{border-color:var(--accent);}
+.modal .row{display:flex;gap:10px;justify-content:flex-end;margin-top:6px;}
+.modal button{padding:9px 18px;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;}
+.btn-ghost{background:#f0f0f0;color:#333;}
+.btn-primary{background:var(--accent);color:#fff;}
+.hint{font-size:11px;color:#999;line-height:1.6;}
+</style>
 </head>
 <body>
-    <div class="toolbar">
-        <button onclick="addTextNode()">+ 新建生成节点</button>
-        <span style="font-size: 12px; margin-left: 10px; color: #aaa;">拖拽本地图片到画布可作为参考图</span>
+<div id="app">
+  <div id="nav1">
+    <div class="nav-item active" data-m="chat" onclick="switchModule('chat')"><div class="ico">💬</div>对话</div>
+    <div class="nav-item" data-m="image" onclick="switchModule('image')"><div class="ico">🖼️</div>图片</div>
+    <div class="nav-item" data-m="video" onclick="switchModule('video')"><div class="ico">🎬</div>视频</div>
+    <div class="nav-item" data-m="canvas" onclick="switchModule('canvas')"><div class="ico">🎨</div>画布</div>
+    <div class="nav-item" onclick="openSettings()"><div class="ico">⚙️</div>设置</div>
+    <div class="nav-item" onclick="alert('资产库开发中')"><div class="ico">📁</div>资产</div>
+  </div>
+
+  <div id="nav2">
+    <div class="new-task" onclick="newTask()">＋ 新建任务</div>
+    <div class="section-label">最近</div>
+    <div id="project-list"></div>
+  </div>
+
+  <div id="content">
+    <!-- ========== 对话 ========== -->
+    <div class="view active" id="chat-view">
+      <div class="history" id="chat-history"></div>
+      <div class="empty-state" id="chat-empty">
+        <div class="icon">💬</div>
+        <div class="title">这是一个新的会话</div>
+        <div class="desc">在下方输入框开始第一次对话</div>
+      </div>
+      <div class="input-panel">
+        <div class="input-box">
+          <div class="input-row">
+            <div class="upload-box" id="chat-upload" onclick="document.getElementById('chat-ref').click()">+</div>
+            <div class="input-main">
+              <textarea id="chat-input" placeholder="输入消息... 按 Enter 发送，Shift+Enter 换行"></textarea>
+            </div>
+          </div>
+          <div class="input-toolbar">
+            <select class="tb-select" id="chat-model">
+              <option value="">默认模型</option>
+            </select>
+            <button class="tb-btn" onclick="alert('提示词库开发中')">📚 提示词库</button>
+            <button class="tb-btn" onclick="alert('更多功能开发中')">⋯ 更多</button>
+            <button class="tb-btn primary" id="chat-send" onclick="sendChat()">发送</button>
+          </div>
+        </div>
+        <input type="file" id="chat-ref" accept="image/*" style="display:none">
+      </div>
     </div>
-    <div id="canvas-container">
+
+    <!-- ========== 图片 ========== -->
+    <div class="view" id="image-view">
+      <div class="history" id="img-history"><div class="gallery" id="img-gallery"></div></div>
+      <div class="empty-state" id="img-empty">
+        <div class="icon">🖼️</div>
+        <div class="title">这是一个新的图片任务</div>
+        <div class="desc">在下方输入框描述你想要的画面</div>
+      </div>
+      <div class="input-panel">
+        <div class="input-box">
+          <div class="input-row">
+            <div class="upload-box" id="img-upload" onclick="document.getElementById('img-ref').click()">+</div>
+            <div class="input-main">
+              <textarea id="img-prompt" placeholder="描述你想要的画面... 按 Enter 生成，Shift+Enter 换行"></textarea>
+            </div>
+          </div>
+          <div class="input-toolbar">
+            <span class="tb-btn" style="background:#eef4ff;color:var(--accent)">🖼️ 图片生成</span>
+            <select class="tb-select" id="img-size"><option>1K</option><option selected>2K</option><option>3K</option><option>4K</option></select>
+            <select class="tb-select" id="img-ratio"><option selected>1:1</option><option>4:3</option><option>3:4</option><option>16:9</option><option>9:16</option></select>
+            <button class="tb-btn" onclick="alert('提示词库开发中')">📚 提示词库</button>
+            <button class="tb-btn" onclick="alert('更多功能开发中')">⋯ 更多</button>
+            <button class="tb-btn primary" id="img-gen" onclick="doImage()">生成</button>
+          </div>
+        </div>
+        <input type="file" id="img-ref" accept="image/*" style="display:none">
+      </div>
+    </div>
+
+    <!-- ========== 视频 ========== -->
+    <div class="view" id="video-view">
+      <div class="history" id="vid-history"><div class="vid-list" id="vid-list"></div></div>
+      <div class="empty-state" id="vid-empty">
+        <div class="icon">🎬</div>
+        <div class="title">这是一个新的视频任务</div>
+        <div class="desc">在下方输入框描述你想要的视频</div>
+      </div>
+      <div class="input-panel">
+        <div class="input-box">
+          <div class="input-row">
+            <div class="upload-box" id="vid-upload" onclick="document.getElementById('vid-ref').click()">+</div>
+            <div class="input-main">
+              <textarea id="vid-prompt" placeholder="描述你想要的视频... 按 Enter 生成"></textarea>
+            </div>
+          </div>
+          <div class="input-toolbar">
+            <select class="tb-select" id="vid-mode"><option value="text">文生视频</option><option value="image">图生视频</option></select>
+            <select class="tb-select" id="vid-size"><option>720P</option></select>
+            <select class="tb-select" id="vid-ratio"><option>16:9</option><option>9:16</option><option>1:1</option></select>
+            <select class="tb-select" id="vid-seconds"><option value="5">5秒</option><option value="10">10秒</option></select>
+            <button class="tb-btn" onclick="alert('更多功能开发中')">⋯ 更多</button>
+            <button class="tb-btn primary" id="vid-gen" onclick="doVideo()">生成</button>
+          </div>
+          <div id="vid-status" style="font-size:12px;color:#888;margin-top:8px;"></div>
+        </div>
+        <input type="file" id="vid-ref" accept="image/*" style="display:none">
+      </div>
+    </div>
+
+    <!-- ========== 画布 ========== -->
+    <div class="view" id="canvas-view">
+      <div id="canvas-wrap">
         <div id="grid"></div>
+        <div id="nodes-layer"></div>
+        <div id="canvas-bottom">
+          <button class="tool-btn primary" onclick="addNodeFromButton()">＋ 新建节点</button>
+          <button class="tool-btn" onclick="zoom(0.9)">➖</button>
+          <span id="zoom-display" style="color:#888;font-size:13px;min-width:50px;text-align:center;">100%</span>
+          <button class="tool-btn" onclick="zoom(1.1)">➕</button>
+          <button class="tool-btn" onclick="resetZoom()">🔄</button>
+          <button class="tool-btn" onclick="saveCanvas()">💾 保存</button>
+        </div>
+      </div>
     </div>
+  </div>
+</div>
 
-    <script>
-        let scale = 1;
-        let translateX = 0, translateY = 0;
-        const container = document.getElementById('canvas-container');
-        const grid = document.getElementById('grid');
-        let isDragging = false;
-        let startX, startY;
+<!-- 右键菜单（画布） -->
+<div id="ctx-menu">
+  <div class="ctx-item" onclick="addNode('text')">📄 文本节点</div>
+  <div class="ctx-item" onclick="addNode('image')">🖼️ 图片节点</div>
+  <div class="ctx-item" onclick="addNode('video')">🎬 视频节点</div>
+</div>
 
-        // 画布平移和缩放
-        container.addEventListener('mousedown', (e) => {
-            if (e.target.closest('.node')) return;
-            isDragging = true;
-            startX = e.clientX - translateX;
-            startY = e.clientY - translateY;
-            container.style.cursor = 'grabbing';
-        });
+<!-- 新建节点浮层 -->
+<div class="modal-mask" id="node-picker">
+  <div class="modal" style="width:320px;">
+    <h3>新建节点</h3>
+    <div class="ctx-item" style="color:#333;padding:12px;" onclick="addNode('text');closeNodePicker()">📄 文本节点</div>
+    <div class="ctx-item" style="color:#333;padding:12px;" onclick="addNode('image');closeNodePicker()">🖼️ 图片节点</div>
+    <div class="ctx-item" style="color:#333;padding:12px;" onclick="addNode('video');closeNodePicker()">🎬 视频节点</div>
+  </div>
+</div>
 
-        window.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            translateX = e.clientX - startX;
-            translateY = e.clientY - startY;
-            updateTransform();
-        });
+<!-- 设置弹窗 -->
+<div class="modal-mask" id="settings-modal">
+  <div class="modal">
+    <h3>设置</h3>
+    <div class="hint">支持任意 OpenAI 兼容的接口。例如：<br>
+      • Agnes 官方：<b>https://apihub.agnes-ai.com/v1</b><br>
+      • OpenAI：<b>https://api.openai.com/v1</b><br>
+      • DeepSeek：<b>https://api.deepseek.com/v1</b><br>
+      • 本地 Ollama：<b>http://localhost:11434/v1</b>
+    </div>
+    <div class="form-row"><label>API Base URL</label><input type="text" id="set-base" placeholder="https://apihub.agnes-ai.com/v1"></div>
+    <div class="form-row"><label>API Key</label><input type="password" id="set-key" placeholder="sk-..."></div>
+    <div class="form-row"><label>文本模型名</label><input type="text" id="set-model-text" placeholder="agnes-3.0-flash"></div>
+    <div class="form-row"><label>图片模型名</label><input type="text" id="set-model-image" placeholder="agnes-image-2.5-flash"></div>
+    <div class="form-row"><label>视频模型名</label><input type="text" id="set-model-video" placeholder="agnes-video-2.5-flash"></div>
+    <div class="row">
+      <button class="btn-ghost" onclick="closeSettings()">取消</button>
+      <button class="btn-primary" onclick="saveSettings()">保存</button>
+    </div>
+  </div>
+</div>
 
-        window.addEventListener('mouseup', () => {
-            isDragging = false;
-            container.style.cursor = 'default';
-        });
+<script>
+let currentModule = 'chat';
+let currentProjectId = null;
+let imgRefBase64 = null, vidRefBase64 = null;
+let canvasScale = 1, canvasX = 0, canvasY = 0;
+let isPanning = false, panStartX, panStartY;
 
-        container.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            const zoom = e.deltaY > 0 ? 0.9 : 1.1;
-            scale *= zoom;
-            scale = Math.max(0.1, Math.min(scale, 5));
-            updateTransform();
-        });
+window.addEventListener('pywebviewready', async () => {
+  const cfg = await window.pywebview.api.get_config();
+  fillSettings(cfg);
+  if (!cfg.api_key) setTimeout(openSettings, 400);
+  switchModule('chat');
+});
 
-        function updateTransform() {
-            grid.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
-            document.querySelectorAll('.node').forEach(node => {
-                node.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
-            });
-        }
+function fillSettings(cfg) {
+  document.getElementById('set-base').value = cfg.api_base || '';
+  document.getElementById('set-key').value = cfg.api_key || '';
+  document.getElementById('set-model-text').value = cfg.model_text || '';
+  document.getElementById('set-model-image').value = cfg.model_image || '';
+  document.getElementById('set-model-video').value = cfg.model_video || '';
+}
 
-        // 新建节点
-        let nodeCount = 0;
-        function addTextNode() {
-            const node = document.createElement('div');
-            node.className = 'node';
-            node.style.left = '100px';
-            node.style.top = '100px';
-            node.innerHTML = `
-                <textarea placeholder="输入提示词，支持 @图片 引用上传的图片"></textarea>
-                <button onclick="generate(this)">生成</button>
-            `;
-            document.body.appendChild(node);
-            makeDraggable(node);
-            updateTransform();
-        }
+async function switchModule(m) {
+  if (currentProjectId) await autoSave();
+  currentModule = m;
+  currentProjectId = null;
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.m === m));
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById(m + '-view').classList.add('active');
+  await refreshProjects();
+  updateEmptyState();
+}
 
-        // 节点拖拽
-        function makeDraggable(elmnt) {
-            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-            elmnt.onmousedown = dragMouseDown;
-            function dragMouseDown(e) {
-                if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON') return;
-                e.preventDefault();
-                pos3 = e.clientX;
-                pos4 = e.clientY;
-                document.onmouseup = closeDragElement;
-                document.onmousemove = elementDrag;
-            }
-            function elementDrag(e) {
-                e.preventDefault();
-                pos1 = pos3 - e.clientX;
-                pos2 = pos4 - e.clientY;
-                pos3 = e.clientX;
-                pos4 = e.clientY;
-                elmnt.style.top = (elmnt.offsetTop - pos2) + "px";
-                elmnt.style.left = (elmnt.offsetLeft - pos1) + "px";
-            }
-            function closeDragElement() {
-                document.onmouseup = null;
-                document.onmousemove = null;
-            }
-        }
+async function refreshProjects() {
+  const list = document.getElementById('project-list');
+  const ps = await window.pywebview.api.get_projects(currentModule);
+  list.innerHTML = '';
+  if (!ps.length) {
+    list.innerHTML = '<div class="empty-tip">还没有任务，点上方按钮新建</div>';
+    return;
+  }
+  ps.forEach(p => {
+    const el = document.createElement('div');
+    el.className = 'proj' + (p.id === currentProjectId ? ' active' : '');
+    el.innerHTML = `<span class="name">${p.name}</span><span class="del" title="删除">✕</span>`;
+    el.querySelector('.name').onclick = () => openProject(p.id);
+    el.onclick = (e) => { if (!e.target.classList.contains('del')) openProject(p.id); };
+    el.querySelector('.del').onclick = async (e) => {
+      e.stopPropagation();
+      if (confirm('删除「' + p.name + '」？')) {
+        await window.pywebview.api.delete_project(p.id);
+        if (currentProjectId === p.id) { currentProjectId = null; clearCurrentView(); updateEmptyState(); }
+        refreshProjects();
+      }
+    };
+    list.appendChild(el);
+  });
+}
 
-        // 调用 Python 后端生成图片
-        async function generate(btn) {
-            const node = btn.parentElement;
-            const prompt = node.querySelector('textarea').value;
-            btn.innerText = '生成中...';
-            btn.disabled = true;
-            try {
-                // 调用 PyWebview 暴露的 Python 接口
-                const result = await window.pywebview.api.generate_image(prompt);
-                if (result.status === 'success') {
-                    const img = document.createElement('img');
-                    img.src = result.url;
-                    node.appendChild(img);
-                } else {
-                    alert('失败: ' + result.message);
-                }
-            } catch (err) {
-                alert('调用出错: ' + err);
-            }
-            btn.innerText = '生成';
-            btn.disabled = false;
-        }
+async function newTask() {
+  if (currentProjectId) await autoSave();
+  const nameMap = {chat: '新对话', image: '新图片任务', video: '新视频任务', canvas: '新画布'};
+  const res = await window.pywebview.api.create_project(currentModule, nameMap[currentModule]);
+  if (res.status === 'success') {
+    currentProjectId = res.project.id;
+    clearCurrentView();
+    await refreshProjects();
+    updateEmptyState();
+    if (currentModule === 'canvas') addNode('text');
+  }
+}
 
-        // 拖拽上传图片
-        document.addEventListener('dragover', (e) => e.preventDefault());
-        document.addEventListener('drop', async (e) => {
-            e.preventDefault();
-            const file = e.dataTransfer.files[0];
-            if (file && file.type.startsWith('image/')) {
-                const reader = new FileReader();
-                reader.onload = async (event) => {
-                    const base64 = event.target.result;
-                    // 在鼠标位置生成一个新节点显示图片
-                    const node = document.createElement('div');
-                    node.className = 'node';
-                    node.style.left = (e.clientX - translateX) / scale + 'px';
-                    node.style.top = (e.clientY - translateY) / scale + 'px';
-                    node.innerHTML = `<img src="${base64}"><div style="font-size:12px;text-align:center;margin-top:5px;color:#10b981;">参考图 (拖拽完成)</div>`;
-                    document.body.appendChild(node);
-                    makeDraggable(node);
-                    updateTransform();
-                };
-                reader.readAsDataURL(file);
-            }
-        });
-    </script>
+async function openProject(pid) {
+  if (currentProjectId === pid) return;
+  if (currentProjectId) await autoSave();
+  const res = await window.pywebview.api.get_project_data(pid);
+  if (res.status !== 'success') return;
+  currentProjectId = pid;
+  const p = res.project;
+  clearCurrentView();
+  if (p.type === 'chat') {
+    (p.data.messages || []).forEach(m => appendMsg(m.role, m.content));
+  } else if (p.type === 'image') {
+    (p.data.generations || []).forEach(g => addImageCard(g.url));
+    document.getElementById('img-prompt').value = p.data.lastPrompt || '';
+  } else if (p.type === 'video') {
+    (p.data.tasks || []).forEach(t => addVideoCard(t));
+  } else if (p.type === 'canvas') {
+    (p.data.nodes || []).forEach(n => renderNode(n));
+    if (p.data.view) { canvasX = p.data.view.x; canvasY = p.data.view.y; canvasScale = p.data.view.scale; updateCanvasTransform(); }
+  }
+  await refreshProjects();
+  updateEmptyState();
+}
+
+function updateEmptyState() {
+  const m = currentModule;
+  if (m === 'chat') {
+    const has = document.getElementById('chat-history').children.length > 0;
+    document.getElementById('chat-empty').style.display = has ? 'none' : 'flex';
+    document.getElementById('chat-history').style.display = has ? 'block' : 'none';
+  } else if (m === 'image') {
+    const has = document.getElementById('img-gallery').children.length > 0;
+    document.getElementById('img-empty').style.display = has ? 'none' : 'flex';
+    document.getElementById('img-history').style.display = has ? 'block' : 'none';
+  } else if (m === 'video') {
+    const has = document.getElementById('vid-list').children.length > 0;
+    document.getElementById('vid-empty').style.display = has ? 'none' : 'flex';
+    document.getElementById('vid-history').style.display = has ? 'block' : 'none';
+  }
+}
+
+function clearCurrentView() {
+  document.getElementById('chat-history').innerHTML = '';
+  document.getElementById('img-gallery').innerHTML = '';
+  document.getElementById('vid-list').innerHTML = '';
+  document.getElementById('vid-status').textContent = '';
+  document.getElementById('nodes-layer').innerHTML = '';
+  document.getElementById('img-prompt').value = '';
+  document.getElementById('vid-prompt').value = '';
+}
+
+async function autoSave() {
+  if (!currentProjectId) return;
+  const data = {};
+  if (currentModule === 'chat') {
+    const msgs = [];
+    document.querySelectorAll('#chat-history .msg').forEach(m => {
+      msgs.push({role: m.classList.contains('user') ? 'user' : 'assistant', content: m.innerText});
+    });
+    data.messages = msgs;
+  } else if (currentModule === 'image') {
+    const gens = [];
+    document.querySelectorAll('#img-gallery img').forEach(img => gens.push({url: img.src}));
+    data.generations = gens;
+    data.lastPrompt = document.getElementById('img-prompt').value;
+  } else if (currentModule === 'video') {
+    const tasks = [];
+    document.querySelectorAll('#vid-list .vid-card').forEach(c => {
+      try { tasks.push(JSON.parse(c.dataset.task || '{}')); } catch(e){}
+    });
+    data.tasks = tasks;
+  } else if (currentModule === 'canvas') {
+    const nodes = [];
+    document.querySelectorAll('#nodes-layer .node').forEach(n => {
+      nodes.push({
+        title: n.dataset.title,
+        type: n.dataset.type,
+        x: parseInt(n.style.left) || 0,
+        y: parseInt(n.style.top) || 0,
+        html: n.querySelector('.node-body').innerHTML,
+        prompt: n.querySelector('textarea') ? n.querySelector('textarea').value : ''
+      });
+    });
+    data.nodes = nodes;
+    data.view = {x: canvasX, y: canvasY, scale: canvasScale};
+  }
+  await window.pywebview.api.save_project_data(currentProjectId, data);
+}
+
+/* ===== 对话 ===== */
+function appendMsg(role, content) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + (role === 'user' ? 'user' : 'ai');
+  div.textContent = content;
+  document.getElementById('chat-history').appendChild(div);
+  const h = document.getElementById('chat-history');
+  h.scrollTop = h.scrollHeight;
+  updateEmptyState();
+}
+
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  if (!currentProjectId) await newTask();
+  appendMsg('user', text);
+  input.value = '';
+  const msgs = [];
+  document.querySelectorAll('#chat-history .msg').forEach(m => {
+    msgs.push({role: m.classList.contains('user') ? 'user' : 'assistant', content: m.innerText});
+  });
+  const tmp = document.createElement('div');
+  tmp.className = 'msg ai';
+  tmp.textContent = '正在思考...';
+  document.getElementById('chat-history').appendChild(tmp);
+  const btn = document.getElementById('chat-send');
+  btn.disabled = true;
+  const res = await window.pywebview.api.text_chat(msgs);
+  btn.disabled = false;
+  tmp.remove();
+  if (res.status === 'success') {
+    appendMsg('assistant', res.content);
+    autoSave();
+  } else {
+    appendMsg('assistant', '[错误] ' + res.message);
+  }
+}
+
+document.getElementById('chat-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+});
+document.getElementById('img-prompt').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doImage(); }
+});
+document.getElementById('vid-prompt').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doVideo(); }
+});
+
+/* ===== 图片 ===== */
+document.getElementById('img-ref').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  imgRefBase64 = await fileToBase64(f);
+  const box = document.getElementById('img-upload');
+  box.classList.add('has-img');
+  box.innerHTML = `<img src="${imgRefBase64}">`;
+});
+
+async function doImage() {
+  if (!currentProjectId) await newTask();
+  const btn = document.getElementById('img-gen');
+  const prompt = document.getElementById('img-prompt').value.trim();
+  if (!prompt) return alert('请输入提示词');
+  btn.disabled = true; btn.textContent = '生成中...';
+  const images = imgRefBase64 ? [imgRefBase64] : null;
+  const res = await window.pywebview.api.generate_image(
+    prompt, document.getElementById('img-size').value,
+    document.getElementById('img-ratio').value, images
+  );
+  btn.disabled = false; btn.textContent = '生成';
+  if (res.status === 'success') {
+    addImageCard(res.url); autoSave();
+  } else { alert('失败：' + res.message); }
+}
+
+function addImageCard(url) {
+  const img = document.createElement('img');
+  img.src = url;
+  img.onclick = () => window.open(url);
+  document.getElementById('img-gallery').appendChild(img);
+  updateEmptyState();
+}
+
+/* ===== 视频 ===== */
+document.getElementById('vid-ref').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  vidRefBase64 = await fileToBase64(f);
+  const box = document.getElementById('vid-upload');
+  box.classList.add('has-img');
+  box.innerHTML = `<img src="${vidRefBase64}">`;
+});
+
+async function doVideo() {
+  if (!currentProjectId) await newTask();
+  const btn = document.getElementById('vid-gen');
+  const status = document.getElementById('vid-status');
+  const prompt = document.getElementById('vid-prompt').value.trim();
+  if (!prompt) return alert('请输入描述');
+  btn.disabled = true; btn.textContent = '创建任务中...';
+  const images = vidRefBase64 ? [vidRefBase64] : null;
+  const createRes = await window.pywebview.api.create_video_task(
+    prompt, document.getElementById('vid-mode').value,
+    document.getElementById('vid-size').value, document.getElementById('vid-ratio').value,
+    document.getElementById('vid-seconds').value, images
+  );
+  if (createRes.status !== 'success') {
+    status.textContent = '创建失败：' + createRes.message;
+    btn.disabled = false; btn.textContent = '生成';
+    return;
+  }
+  const raw = createRes.raw;
+  const vid = raw.video_id || raw.id || raw.task_id;
+  if (!vid) {
+    status.textContent = '未获取任务ID：' + JSON.stringify(raw);
+    btn.disabled = false; btn.textContent = '生成';
+    return;
+  }
+  status.textContent = '任务已创建 ' + vid + '，正在生成...';
+  btn.textContent = '生成中...';
+  const waitRes = await window.pywebview.api.wait_video(vid);
+  btn.disabled = false; btn.textContent = '生成';
+  if (waitRes.status === 'success') {
+    status.textContent = '生成完成';
+    addVideoCard({prompt, url: waitRes.url, video_id: vid});
+    autoSave();
+  } else {
+    status.textContent = '失败：' + waitRes.message;
+  }
+}
+
+function addVideoCard(task) {
+  const card = document.createElement('div');
+  card.className = 'vid-card';
+  card.dataset.task = JSON.stringify(task);
+  card.innerHTML = `${task.url ? `<video src="${task.url}" controls></video>` : '<div style="padding:20px;color:#999;">无视频地址</div>'}<div class="info">${task.prompt || ''}</div>`;
+  document.getElementById('vid-list').appendChild(card);
+  updateEmptyState();
+}
+
+/* ===== 画布 ===== */
+const canvasWrap = document.getElementById('canvas-wrap');
+
+canvasWrap.addEventListener('mousedown', e => {
+  if (e.target.closest('.node') || e.target.closest('#canvas-bottom')) return;
+  if (e.button !== 0) return;
+  isPanning = true;
+  panStartX = e.clientX - canvasX;
+  panStartY = e.clientY - canvasY;
+  canvasWrap.style.cursor = 'grabbing';
+});
+window.addEventListener('mousemove', e => {
+  if (!isPanning) return;
+  canvasX = e.clientX - panStartX; canvasY = e.clientY - panStartY;
+  updateCanvasTransform();
+});
+window.addEventListener('mouseup', () => { isPanning = false; canvasWrap.style.cursor = 'default'; });
+canvasWrap.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY > 0 ? 0.9 : 1.1;
+  canvasScale = Math.max(0.1, Math.min(canvasScale * factor, 5));
+  updateCanvasTransform();
+}, {passive:false});
+
+canvasWrap.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const menu = document.getElementById('ctx-menu');
+  menu.style.display = 'flex';
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+});
+window.addEventListener('click', () => { document.getElementById('ctx-menu').style.display = 'none'; });
+
+function updateCanvasTransform() {
+  const t = `translate(${canvasX}px, ${canvasY}px) scale(${canvasScale})`;
+  document.getElementById('grid').style.transform = t;
+  document.getElementById('nodes-layer').style.transform = t;
+  document.getElementById('zoom-display').textContent = Math.round(canvasScale * 100) + '%';
+}
+function zoom(f) { canvasScale = Math.max(0.1, Math.min(canvasScale * f, 5)); updateCanvasTransform(); }
+function resetZoom() { canvasScale = 1; canvasX = 0; canvasY = 0; updateCanvasTransform(); }
+function addNodeFromButton() { document.getElementById('node-picker').classList.add('show'); }
+function closeNodePicker() { document.getElementById('node-picker').classList.remove('show'); }
+
+function addNode(type) {
+  document.getElementById('ctx-menu').style.display = 'none';
+  if (!currentProjectId) newTask().then(() => addNode(type));
+  const x = (canvasWrap.clientWidth / 2 - canvasX) / canvasScale;
+  const y = (canvasWrap.clientHeight / 2 - canvasY) / canvasScale;
+  renderNode({type, x, y, title: type === 'text' ? '文本生成' : type === 'image' ? '图片节点' : '视频节点', html: '', prompt: ''});
+}
+
+function renderNode(data) {
+  const node = document.createElement('div');
+  node.className = 'node';
+  node.dataset.type = data.type;
+  node.dataset.title = data.title || '';
+  node.style.left = data.x + 'px';
+  node.style.top = data.y + 'px';
+  let inner = '';
+  if (data.type === 'text') {
+    inner = `<textarea placeholder="输入提示词">${data.prompt || ''}</textarea><button onclick="nodeGenImage(this)">生成图片</button>`;
+  } else if (data.type === 'image') {
+    inner = `<div style="color:#888;font-size:12px;">图片节点</div>`;
+  } else if (data.type === 'video') {
+    inner = `<textarea placeholder="视频描述">${data.prompt || ''}</textarea><button onclick="alert('请到视频模块生成视频')">生成视频</button>`;
+  }
+  node.innerHTML = `<div class="node-header"><span>${data.title || ''}</span><span style="cursor:pointer" onclick="this.closest('.node').remove()">✕</span></div><div class="node-body">${data.html || inner}</div>`;
+  const header = node.querySelector('.node-header');
+  header.addEventListener('mousedown', e => {
+    e.stopPropagation();
+    let px = e.clientX, py = e.clientY;
+    let nx = parseInt(node.style.left), ny = parseInt(node.style.top);
+    const onMove = ev => {
+      node.style.left = (nx + (ev.clientX - px) / canvasScale) + 'px';
+      node.style.top = (ny + (ev.clientY - py) / canvasScale) + 'px';
+    };
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+  document.getElementById('nodes-layer').appendChild(node);
+}
+
+async function nodeGenImage(btn) {
+  const node = btn.closest('.node');
+  const prompt = node.querySelector('textarea').value.trim();
+  if (!prompt) return;
+  btn.disabled = true; btn.textContent = '生成中...';
+  const res = await window.pywebview.api.generate_image(prompt);
+  btn.disabled = false; btn.textContent = '生成图片';
+  if (res.status === 'success') {
+    let img = node.querySelector('img');
+    if (!img) { img = document.createElement('img'); node.querySelector('.node-body').appendChild(img); }
+    img.src = res.url;
+    if (currentProjectId) autoSave();
+  } else { alert('失败：' + res.message); }
+}
+
+async function saveCanvas() {
+  if (!currentProjectId) { alert('请先新建画布任务'); return; }
+  await autoSave();
+  alert('已保存');
+}
+
+/* ===== 设置 ===== */
+function openSettings() { document.getElementById('settings-modal').classList.add('show'); }
+function closeSettings() { document.getElementById('settings-modal').classList.remove('show'); }
+async function saveSettings() {
+  const cfg = {
+    api_base: document.getElementById('set-base').value.trim(),
+    api_key: document.getElementById('set-key').value.trim(),
+    model_text: document.getElementById('set-model-text').value.trim(),
+    model_image: document.getElementById('set-model-image').value.trim(),
+    model_video: document.getElementById('set-model-video').value.trim()
+  };
+  if (!cfg.api_base) return alert('API Base URL 不能为空');
+  const r = await window.pywebview.api.save_config(cfg);
+  if (r.status === 'success') { alert('已保存'); closeSettings(); }
+  else alert('保存失败');
+}
+
+/* ===== 工具 ===== */
+function fileToBase64(file) {
+  return new Promise(resolve => {
+    const r = new FileReader();
+    r.onload = e => resolve(e.target.result);
+    r.readAsDataURL(file);
+  });
+}
+</script>
 </body>
 </html>
