@@ -26,7 +26,8 @@ jobs:
       - name: Build EXE
         run: |
           # 注意：Windows 下 --add-data 的参数分隔符是分号 ";"，表示把 index.html 打包到 exe 同级目录
-          pyinstaller -F -w --name AgnesCanvas --add-data "index.html;." main.py
+          # 新增了 --collect-all pywebview 和 --hidden-import clr 来保证 pywebview 在 Windows 下完整打包
+          pyinstaller -F -w --name AgnesCanvas --add-data "index.html;." --collect-all pywebview --hidden-import clr main.py
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
