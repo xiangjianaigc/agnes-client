@@ -4,7 +4,6 @@ let currentProjectId = null;
 let canvasScale = 1, canvasX = 0, canvasY = 0;
 let isPanning = false, panStartX, panStartY;
 
-// 各模块素材列表：{id, name, base64}
 const assets = { chat: [], image: [], video: [], canvas: {} };
 let assetCounter = { chat: 1, image: 1, video: 1 };
 
@@ -12,8 +11,11 @@ let assetCounter = { chat: 1, image: 1, video: 1 };
 window.addEventListener('pywebviewready', async () => {
   const cfg = await window.pywebview.api.get_config();
   fillSettings(cfg);
-  if (!cfg.api_key) { openSettings(); }
-  else { loadAllModelLists(); }
+  if (!cfg.api_key) {
+    openSettings();
+  } else {
+    loadAllModelLists();
+  }
   switchModule('chat');
 });
 
@@ -36,7 +38,8 @@ function populateModelSelect(id, models, current) {
   sel.innerHTML = '<option value="">默认模型</option>';
   models.forEach(m => {
     const opt = document.createElement('option');
-    opt.value = m; opt.textContent = m;
+    opt.value = m;
+    opt.textContent = m;
     sel.appendChild(opt);
   });
   sel.value = current && models.includes(current) ? current : old || '';
@@ -59,7 +62,10 @@ async function refreshProjects() {
   const list = document.getElementById('project-list');
   const ps = await window.pywebview.api.get_projects(currentModule);
   list.innerHTML = '';
-  if (!ps.length) { list.innerHTML = '<div class="empty-tip">还没有任务，点上方按钮新建</div>'; return; }
+  if (!ps.length) {
+    list.innerHTML = '<div class="empty-tip">还没有任务，点上方按钮新建</div>';
+    return;
+  }
   ps.forEach(p => {
     const el = document.createElement('div');
     el.className = 'proj' + (p.id === currentProjectId ? ' active' : '');
@@ -85,7 +91,6 @@ async function newTask() {
   if (res.status === 'success') {
     currentProjectId = res.project.id;
     clearCurrentView();
-    // 清空本模块素材（每个项目独立素材）
     if (currentModule === 'chat') { assets.chat = []; assetCounter.chat = 1; renderAssetPanel('chat'); }
     if (currentModule === 'image') { assets.image = []; assetCounter.image = 1; renderAssetPanel('image'); }
     if (currentModule === 'video') { assets.video = []; assetCounter.video = 1; renderAssetPanel('video'); }
@@ -169,8 +174,10 @@ async function autoSave() {
     const nodes = [];
     document.querySelectorAll('#nodes-layer .node').forEach(n => {
       nodes.push({
-        title: n.dataset.title, type: n.dataset.type,
-        x: parseInt(n.style.left) || 0, y: parseInt(n.style.top) || 0,
+        title: n.dataset.title,
+        type: n.dataset.type,
+        x: parseInt(n.style.left) || 0,
+        y: parseInt(n.style.top) || 0,
         html: n.querySelector('.node-body').innerHTML,
         prompt: n.querySelector('textarea') ? n.querySelector('textarea').value : ''
       });
@@ -181,7 +188,7 @@ async function autoSave() {
   await window.pywebview.api.save_project_data(currentProjectId, data);
 }
 
-// ===== 素材管理（每个模块独立）=====
+// ===== 素材管理 =====
 function renderAssetPanel(module) {
   const el = document.getElementById(module + '-assets');
   if (!el) return;
@@ -194,12 +201,12 @@ function renderAssetPanel(module) {
     chip.innerHTML = `<img src="${a.base64}"><div class="rm" onclick="removeAsset('${module}', ${i})">✕</div>`;
     el.appendChild(chip);
   });
-  // 更新上传框计数
-  const box = document.getElementById(module === 'chat' ? 'chat-upload' : module === 'image' ? 'img-upload' : 'vid-upload');
+  const boxMap = { chat: 'chat-upload', image: 'img-upload', video: 'vid-upload' };
+  const box = document.getElementById(boxMap[module]);
   if (box) {
     if (list.length) {
       box.classList.add('has-img');
-      box.innerHTML = `<img src="${list[list.length-1].base64}">${list.length>1?`<div class="count">${list.length}</div>`:''}`;
+      box.innerHTML = `<img src="${list[list.length-1].base64}">${list.length > 1 ? `<div class="count">${list.length}</div>` : ''}`;
     } else {
       box.classList.remove('has-img');
       box.innerHTML = '+';
@@ -230,14 +237,13 @@ document.getElementById('chat-ref').addEventListener('change', e => handleUpload
 document.getElementById('img-ref').addEventListener('change', e => handleUpload('image', e.target.files));
 document.getElementById('vid-ref').addEventListener('change', e => handleUpload('video', e.target.files));
 
-// ===== @ 素材弹窗 =====
+// ===== @ 素材 =====
 function bindAt(inputId, popupId, module) {
   const input = document.getElementById(inputId);
   const popup = document.getElementById(popupId);
-  input.addEventListener('input', e => {
+  input.addEventListener('input', () => {
     const val = input.value;
     const pos = input.selectionStart;
-    // 检查光标前一个字符是不是 @
     if (val[pos-1] === '@') {
       const list = assets[module] || [];
       if (!list.length) return;
@@ -247,7 +253,6 @@ function bindAt(inputId, popupId, module) {
         item.className = 'at-item';
         item.innerHTML = `<img src="${a.base64}"><span class="name">图片${i+1} · ${a.name}</span>`;
         item.onclick = () => {
-          // 把 @ 替换成标记 @[img:N]
           const before = val.slice(0, pos-1);
           const after = val.slice(pos);
           input.value = before + `@[img:${i}] ` + after;
@@ -257,9 +262,6 @@ function bindAt(inputId, popupId, module) {
         popup.appendChild(item);
       });
       popup.classList.add('show');
-      const rect = input.getBoundingClientRect();
-      popup.style.left = '0px';
-      popup.style.top = '0px';
     } else {
       popup.classList.remove('show');
     }
@@ -271,17 +273,14 @@ bindAt('chat-input', 'chat-at', 'chat');
 bindAt('img-prompt', 'img-at', 'image');
 bindAt('vid-prompt', 'vid-at', 'video');
 
-// 解析文本中的 @[img:N] 标记，返回 {text, images}
 function parseAt(text, module) {
   const list = assets[module] || [];
   const images = [];
   const regex = /@\[img:(\d+)\]/g;
   const clean = text.replace(regex, (m, idx) => {
     const i = parseInt(idx);
-    if (i >= 0 && i < list.length) {
-      images.push(list[i].base64);
-    }
-    return ''; // 从文本里移除标记
+    if (i >= 0 && i < list.length) images.push(list[i].base64);
+    return '';
   }).replace(/\s+/g, ' ').trim();
   return { text: clean, images };
 }
@@ -335,12 +334,16 @@ async function sendChat() {
   const res = await window.pywebview.api.text_chat(msgs, images, model);
   btn.disabled = false;
   tmp.remove();
-  if (res.status === 'success') { appendMsg('assistant', res.content); autoSave(); }
-  else { appendMsg('assistant', '[错误] ' + res.message); }
+  if (res.status === 'success') {
+    appendMsg('assistant', res.content);
+    autoSave();
+  } else {
+    appendMsg('assistant', '[错误] ' + res.message);
+  }
 }
 
 document.getElementById('chat-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat(); }
 });
 
 // ===== 图片 =====
@@ -354,8 +357,11 @@ async function doImage() {
   btn.disabled = true; btn.textContent = '生成中...';
   const model = document.getElementById('img-model').value || null;
   const res = await window.pywebview.api.generate_image(
-    text, document.getElementById('img-size').value,
-    document.getElementById('img-ratio').value, images.length ? images : null, model
+    text,
+    document.getElementById('img-size').value,
+    document.getElementById('img-ratio').value,
+    images.length ? images : null,
+    model
   );
   btn.disabled = false; btn.textContent = '生成';
   if (res.status === 'success') { addImageCard(res.url); autoSave(); }
@@ -370,6 +376,10 @@ function addImageCard(url) {
   updateEmptyState();
 }
 
+document.getElementById('img-prompt').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); doImage(); }
+});
+
 // ===== 视频 =====
 async function doVideo() {
   if (!currentProjectId) await newTask();
@@ -381,22 +391,26 @@ async function doVideo() {
   if (!text) return alert('请输入描述');
   btn.disabled = true; btn.textContent = '创建任务中...';
   const model = document.getElementById('vid-model').value || null;
-  let mode = document.getElementById('vid-mode').value;
-  // 模式映射：ref 表示全能参考
+  const mode = document.getElementById('vid-mode').value;
   const createRes = await window.pywebview.api.create_video_task(
-    text, mode, document.getElementById('vid-size').value,
-    document.getElementById('vid-ratio').value, document.getElementById('vid-seconds').value,
-    images.length ? images : null, model
+    text, mode,
+    document.getElementById('vid-size').value,
+    document.getElementById('vid-ratio').value,
+    document.getElementById('vid-seconds').value,
+    images.length ? images : null,
+    model
   );
   if (createRes.status !== 'success') {
     status.textContent = '创建失败：' + createRes.message;
-    btn.disabled = false; btn.textContent = '生成'; return;
+    btn.disabled = false; btn.textContent = '生成';
+    return;
   }
   const r = createRes.raw;
   const vid = r.video_id || r.id || r.task_id;
   if (!vid) {
     status.textContent = '未获取任务ID：' + JSON.stringify(r);
-    btn.disabled = false; btn.textContent = '生成'; return;
+    btn.disabled = false; btn.textContent = '生成';
+    return;
   }
   status.textContent = '任务已创建 ' + vid + '，正在生成...';
   btn.textContent = '生成中...';
@@ -406,7 +420,9 @@ async function doVideo() {
     status.textContent = '生成完成';
     addVideoCard({ prompt: text, url: waitRes.url, video_id: vid });
     autoSave();
-  } else { status.textContent = '失败：' + waitRes.message; }
+  } else {
+    status.textContent = '失败：' + waitRes.message;
+  }
 }
 
 function addVideoCard(task) {
@@ -418,10 +434,6 @@ function addVideoCard(task) {
   updateEmptyState();
 }
 
-// 快捷键
-document.getElementById('img-prompt').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); doImage(); }
-});
 document.getElementById('vid-prompt').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); doVideo(); }
 });
@@ -439,16 +451,20 @@ canvasWrap.addEventListener('mousedown', e => {
 });
 window.addEventListener('mousemove', e => {
   if (!isPanning) return;
-  canvasX = e.clientX - panStartX; canvasY = e.clientY - panStartY;
+  canvasX = e.clientX - panStartX;
+  canvasY = e.clientY - panStartY;
   updateCanvasTransform();
 });
-window.addEventListener('mouseup', () => { isPanning = false; canvasWrap.style.cursor = 'default'; });
+window.addEventListener('mouseup', () => {
+  isPanning = false;
+  canvasWrap.style.cursor = 'default';
+});
 canvasWrap.addEventListener('wheel', e => {
   e.preventDefault();
   const factor = e.deltaY > 0 ? 0.9 : 1.1;
   canvasScale = Math.max(0.1, Math.min(canvasScale * factor, 5));
   updateCanvasTransform();
-}, {passive:false});
+}, {passive: false});
 
 canvasWrap.addEventListener('contextmenu', e => {
   e.preventDefault();
@@ -519,13 +535,16 @@ function renderNode(data) {
       node.style.left = (nx + (ev.clientX - px) / canvasScale) + 'px';
       node.style.top = (ny + (ev.clientY - py) / canvasScale) + 'px';
     };
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   });
   document.getElementById('nodes-layer').appendChild(node);
 }
 
-// 画布节点的素材上传（每个节点独立维护自己的素材）
 window.nodeAssets = new Map();
 
 function nodeUploadImage(btn) {
@@ -583,7 +602,6 @@ async function nodeGenImage(btn) {
   const raw = node.querySelector('textarea').value.trim();
   if (!raw) return;
   const list = window.nodeAssets.get(node) || [];
-  // 解析 @[img:N]
   const images = [];
   const text = raw.replace(/@\[img:(\d+)\]/g, (m, idx) => {
     const i = parseInt(idx);
@@ -599,7 +617,9 @@ async function nodeGenImage(btn) {
     if (!img) { img = document.createElement('img'); node.querySelector('.node-body').appendChild(img); }
     img.src = res.url;
     if (currentProjectId) autoSave();
-  } else { alert('失败：' + res.message); }
+  } else {
+    alert('失败：' + res.message);
+  }
 }
 
 async function saveCanvas() {
@@ -615,10 +635,9 @@ function closeSettings() { document.getElementById('settings-modal').classList.r
 function fillSettings(cfg) {
   document.getElementById('set-base').value = cfg.api_base || '';
   document.getElementById('set-key').value = cfg.api_key || '';
-  // 下拉框先加当前值，用户可点击「拉取模型列表」刷新
-  ['set-model-text', 'set-model-image', 'set-model-video'].forEach((id, i) => {
+  const map = [['set-model-text', cfg.model_text], ['set-model-image', cfg.model_image], ['set-model-video', cfg.model_video]];
+  map.forEach(([id, cur]) => {
     const sel = document.getElementById(id);
-    const cur = [cfg.model_text, cfg.model_image, cfg.model_video][i];
     sel.innerHTML = '';
     if (cur) {
       const opt = document.createElement('option');
@@ -632,7 +651,6 @@ function fillSettings(cfg) {
 async function fetchModels() {
   const status = document.getElementById('fetch-status');
   status.textContent = '拉取中...';
-  // 先保存 base 和 key 到后端，否则 list_models 拿不到
   const cfg = {
     api_base: document.getElementById('set-base').value.trim(),
     api_key: document.getElementById('set-key').value.trim(),
@@ -642,7 +660,10 @@ async function fetchModels() {
   };
   await window.pywebview.api.save_config(cfg);
   const res = await window.pywebview.api.list_models();
-  if (res.status !== 'success') { status.textContent = '失败：' + res.message; return; }
+  if (res.status !== 'success') {
+    status.textContent = '失败：' + res.message;
+    return;
+  }
   const models = res.models || [];
   status.textContent = '成功拉取 ' + models.length + ' 个模型';
   ['set-model-text', 'set-model-image', 'set-model-video'].forEach(id => {
@@ -656,10 +677,46 @@ async function fetchModels() {
     });
     if (cur && models.includes(cur)) sel.value = cur;
   });
-  // 同步到工具栏下拉
   populateModelSelect('chat-model', models, document.getElementById('chat-model').value);
   populateModelSelect('img-model', models, document.getElementById('img-model').value);
   populateModelSelect('vid-model', models, document.getElementById('vid-model').value);
+}
+
+async function diagnose() {
+  const cfg = {
+    api_base: document.getElementById('set-base').value.trim(),
+    api_key: document.getElementById('set-key').value.trim(),
+    model_text: document.getElementById('set-model-text').value,
+    model_image: document.getElementById('set-model-image').value,
+    model_video: document.getElementById('set-model-video').value
+  };
+  await window.pywebview.api.save_config(cfg);
+
+  const box = document.getElementById('diag-result');
+  box.style.display = 'block';
+  box.textContent = '诊断中...';
+
+  const res = await window.pywebview.api.diagnose();
+  if (res.status !== 'success') {
+    box.textContent = '诊断失败：' + res.message;
+    return;
+  }
+  const info = res.info;
+  box.textContent =
+    '=== 诊断结果 ===\n' + info.result + '\n\n' +
+    'API Base（原始）: ' + info.api_base_raw + '\n' +
+    'API Base（最终）: ' + info.api_base_final + '\n' +
+    '实际请求 URL: ' + info.url_to_try + '\n\n' +
+    'Key 长度: ' + info.key_length + '\n' +
+    'Key 前8位: ' + info.key_prefix + '...\n' +
+    'Key 后4位: ...' + info.key_suffix + '\n' +
+    'Key 含空格/换行: ' + (info.key_has_space ? '⚠️ 有！这就是问题所在' : '否') + '\n\n' +
+    '【Bearer 认证】\n' +
+    'HTTP 状态: ' + info.http_status + '\n' +
+    '原始响应:\n' + (info.response_preview || '(无)') + '\n\n' +
+    '【x-api-key 认证】\n' +
+    'HTTP 状态: ' + info.xapikey_status + '\n' +
+    '原始响应:\n' + (info.xapikey_preview || '(无)');
 }
 
 async function saveSettings() {
@@ -673,14 +730,16 @@ async function saveSettings() {
   if (!cfg.api_base) return alert('API Base URL 不能为空');
   const r = await window.pywebview.api.save_config(cfg);
   if (r.status === 'success') {
-    // 同步到各模块下拉框
     populateModelSelect('chat-model', [cfg.model_text].filter(Boolean), cfg.model_text);
     populateModelSelect('img-model', [cfg.model_image].filter(Boolean), cfg.model_image);
     populateModelSelect('vid-model', [cfg.model_video].filter(Boolean), cfg.model_video);
     if (!window._modelsLoaded) loadAllModelLists();
     window._modelsLoaded = true;
-    alert('已保存'); closeSettings();
-  } else alert('保存失败');
+    alert('已保存');
+    closeSettings();
+  } else {
+    alert('保存失败');
+  }
 }
 
 // ===== 工具 =====
@@ -692,7 +751,6 @@ function fileToBase64(file) {
   });
 }
 
-// 全局拖拽上传（拖到对话/图片/视频输入面板时生效）
 document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', async e => {
   e.preventDefault();
