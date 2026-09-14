@@ -48,12 +48,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
 .msg{max-width:80%;margin-bottom:16px;padding:12px 16px;border-radius:12px;line-height:1.7;font-size:14px;white-space:pre-wrap;word-wrap:break-word;}
 .msg.user{background:#dbeafe;margin-left:auto;}
 .msg.ai{background:#f3f4f6;}
-.msg img{max-width:200px;border-radius:8px;margin-top:6px;display:block;}
+.msg .msg-imgs{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+.msg .msg-imgs img{max-width:120px;max-height:120px;border-radius:8px;display:block;}
 
 .input-panel{padding:16px 8%;border-top:1px solid #f0f0f0;background:#fff;}
 .input-box{border:1px solid #e0e0e0;border-radius:14px;padding:14px 16px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.03);transition:.2s;position:relative;}
 .input-box:focus-within{border-color:var(--accent);box-shadow:0 2px 14px rgba(59,130,246,.1);}
-.input-box textarea{width:100%;border:none;outline:none;resize:none;font-family:inherit;font-size:14px;min-height:48px;max-height:200px;line-height:1.5;background:transparent;}
+.input-box textarea{width:100%;border:none;outline:none;resize:vertical;font-family:inherit;font-size:14px;min-height:100px;max-height:400px;line-height:1.6;background:transparent;padding-right:36px;}
+
+.expand-btn{position:absolute;top:10px;right:10px;width:28px;height:28px;border-radius:6px;background:#f5f5f5;border:none;cursor:pointer;color:#666;font-size:14px;display:flex;align-items:center;justify-content:center;transition:.15s;}
+.expand-btn:hover{background:var(--accent);color:#fff;}
+
 .input-toolbar{display:flex;gap:8px;align-items:center;padding-top:10px;flex-wrap:wrap;}
 .tb-btn{padding:6px 10px;background:#f5f5f5;border:none;border-radius:8px;cursor:pointer;font-size:12px;color:#555;display:flex;align-items:center;gap:4px;transition:.15s;font-family:inherit;}
 .tb-btn:hover{background:#e8e8e8;}
@@ -61,14 +66,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
 .tb-btn.primary:hover{background:#2563eb;}
 .tb-btn.primary:disabled{opacity:.5;cursor:not-allowed;}
 .tb-select{padding:6px 8px;background:#f5f5f5;border:none;border-radius:8px;cursor:pointer;font-size:12px;color:#555;outline:none;font-family:inherit;max-width:220px;}
-.upload-box{width:44px;height:44px;border:1px dashed #ccc;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#aaa;font-size:20px;transition:.15s;flex-shrink:0;position:relative;}
+
+/* 上传区：按钮 + 独立缩略图列表 */
+.upload-row{display:flex;gap:12px;align-items:flex-start;margin-bottom:10px;}
+.upload-box{width:48px;height:48px;border:1px dashed #ccc;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#aaa;font-size:22px;transition:.15s;flex-shrink:0;background:#fff;}
 .upload-box:hover{border-color:var(--accent);color:var(--accent);}
-.upload-box.has-img{border-style:solid;border-color:var(--accent);padding:0;overflow:hidden;}
-.upload-box img{width:100%;height:100%;object-fit:cover;border-radius:6px;}
-.upload-box .count{position:absolute;bottom:-4px;right:-4px;background:var(--accent);color:#fff;font-size:10px;padding:1px 5px;border-radius:8px;}
-.input-row{display:flex;gap:12px;align-items:flex-start;}
+.asset-list{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-height:48px;align-items:center;}
+
+.asset-chip{position:relative;width:48px;height:48px;border-radius:8px;overflow:hidden;border:1px solid #eee;cursor:pointer;}
+.asset-chip img{width:100%;height:100%;object-fit:cover;}
+.asset-chip .rm{position:absolute;top:-1px;right:-1px;background:rgba(0,0,0,.65);color:#fff;font-size:10px;width:16px;height:16px;line-height:16px;text-align:center;border-radius:50%;cursor:pointer;}
+
 .input-main{flex:1;position:relative;}
 
+/* @ 弹窗 */
 .at-popup{position:absolute;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.12);padding:6px;width:260px;max-height:260px;overflow-y:auto;display:none;z-index:500;}
 .at-popup.show{display:block;}
 .at-popup .at-hint{font-size:11px;color:#999;padding:6px 10px;}
@@ -77,10 +88,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
 .at-item img{width:32px;height:32px;object-fit:cover;border-radius:6px;border:1px solid #eee;}
 .at-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333;}
 
-.asset-panel{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0;}
-.asset-chip{position:relative;width:40px;height:40px;border-radius:6px;overflow:hidden;border:1px solid #eee;}
-.asset-chip img{width:100%;height:100%;object-fit:cover;}
-.asset-chip .rm{position:absolute;top:-1px;right:-1px;background:rgba(0,0,0,.6);color:#fff;font-size:10px;width:14px;height:14px;line-height:14px;text-align:center;border-radius:50%;cursor:pointer;}
+/* 输入框内联的 @ 素材缩略图标记 */
+.at-chip{display:inline-flex;align-items:center;gap:4px;background:#eef4ff;border:1px solid #c7dbff;color:var(--accent);font-size:12px;padding:2px 6px;border-radius:6px;vertical-align:middle;margin:0 2px;}
+.at-chip img{width:18px;height:18px;border-radius:4px;object-fit:cover;}
+
+/* 全屏编辑弹窗 */
+.fullscreen-edit{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:1500;}
+.fullscreen-edit.show{display:flex;}
+.fullscreen-edit .box{background:#fff;border-radius:14px;width:80vw;max-width:1000px;height:80vh;padding:24px;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 60px rgba(0,0,0,.3);}
+.fullscreen-edit textarea{flex:1;border:1px solid var(--border);border-radius:10px;padding:14px;font-family:inherit;font-size:14px;line-height:1.6;resize:none;outline:none;}
+.fullscreen-edit textarea:focus{border-color:var(--accent);}
+.fullscreen-edit .row{display:flex;gap:10px;justify-content:flex-end;}
+.fullscreen-edit button{padding:9px 20px;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;}
+.fullscreen-edit .btn-ghost{background:#f0f0f0;color:#333;}
+.fullscreen-edit .btn-primary{background:var(--accent);color:#fff;}
+.fullscreen-edit .title{font-size:14px;color:#666;}
 
 .gallery{padding:20px 8%;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;overflow-y:auto;flex:1;}
 .gallery img{width:100%;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,.08);cursor:pointer;transition:.2s;}
@@ -129,7 +151,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
 .fetch-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
 .fetch-row button{background:#eef4ff;color:var(--accent);padding:8px 14px;font-weight:500;}
 .diag-box{display:none;background:#f5f5f5;padding:12px;border-radius:8px;font-size:11px;max-height:240px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;font-family:Consolas,Monaco,monospace;}
-.mini-btn{font-size:11px;padding:3px 8px;background:#f0f0f0;border:none;border-radius:5px;color:#666;cursor:pointer;}
 </style>
 </head>
 <body>
@@ -150,6 +171,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
   </div>
 
   <div id="content">
+    <!-- 对话 -->
     <div class="view active" id="chat-view">
       <div class="history" id="chat-history"></div>
       <div class="empty-state" id="chat-empty">
@@ -159,13 +181,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
       </div>
       <div class="input-panel">
         <div class="input-box">
-          <div class="asset-panel" id="chat-assets"></div>
-          <div class="input-row">
-            <div class="upload-box" id="chat-upload" onclick="document.getElementById('chat-ref').click()">+</div>
-            <div class="input-main">
-              <textarea id="chat-input" placeholder="输入消息... 按 @ 引用素材，Enter 发送"></textarea>
-              <div class="at-popup" id="chat-at"></div>
-            </div>
+          <div class="upload-row">
+            <div class="upload-box" onclick="document.getElementById('chat-ref').click()">+</div>
+            <div class="asset-list" id="chat-assets"></div>
+          </div>
+          <div class="input-main">
+            <button class="expand-btn" onclick="expandEdit('chat')" title="放大输入框">⤢</button>
+            <textarea id="chat-input" placeholder="输入消息... 按 @ 引用素材，Enter 发送，Shift+Enter 换行"></textarea>
+            <div class="at-popup" id="chat-at"></div>
           </div>
           <div class="input-toolbar">
             <select class="tb-select" id="chat-model"><option value="">默认模型</option></select>
@@ -177,6 +200,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
       </div>
     </div>
 
+    <!-- 图片 -->
     <div class="view" id="image-view">
       <div class="history" id="img-history"><div class="gallery" id="img-gallery"></div></div>
       <div class="empty-state" id="img-empty">
@@ -186,13 +210,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
       </div>
       <div class="input-panel">
         <div class="input-box">
-          <div class="asset-panel" id="image-assets"></div>
-          <div class="input-row">
-            <div class="upload-box" id="img-upload" onclick="document.getElementById('img-ref').click()">+</div>
-            <div class="input-main">
-              <textarea id="img-prompt" placeholder="描述你想要的画面... 按 @ 引用素材"></textarea>
-              <div class="at-popup" id="img-at"></div>
-            </div>
+          <div class="upload-row">
+            <div class="upload-box" onclick="document.getElementById('img-ref').click()">+</div>
+            <div class="asset-list" id="image-assets"></div>
+          </div>
+          <div class="input-main">
+            <button class="expand-btn" onclick="expandEdit('image')" title="放大输入框">⤢</button>
+            <textarea id="img-prompt" placeholder="描述你想要的画面... 按 @ 引用素材"></textarea>
+            <div class="at-popup" id="img-at"></div>
           </div>
           <div class="input-toolbar">
             <select class="tb-select" id="img-model"><option value="">默认模型</option></select>
@@ -205,6 +230,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
       </div>
     </div>
 
+    <!-- 视频 -->
     <div class="view" id="video-view">
       <div class="history" id="vid-history"><div class="vid-list" id="vid-list"></div></div>
       <div class="empty-state" id="vid-empty">
@@ -214,13 +240,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
       </div>
       <div class="input-panel">
         <div class="input-box">
-          <div class="asset-panel" id="video-assets"></div>
-          <div class="input-row">
-            <div class="upload-box" id="vid-upload" onclick="document.getElementById('vid-ref').click()">+</div>
-            <div class="input-main">
-              <textarea id="vid-prompt" placeholder="描述你想要的视频... 按 @ 引用素材"></textarea>
-              <div class="at-popup" id="vid-at"></div>
-            </div>
+          <div class="upload-row">
+            <div class="upload-box" onclick="document.getElementById('vid-ref').click()">+</div>
+            <div class="asset-list" id="video-assets"></div>
+          </div>
+          <div class="input-main">
+            <button class="expand-btn" onclick="expandEdit('video')" title="放大输入框">⤢</button>
+            <textarea id="vid-prompt" placeholder="描述你想要的视频... 按 @ 引用素材"></textarea>
+            <div class="at-popup" id="vid-at"></div>
           </div>
           <div class="input-toolbar">
             <select class="tb-select" id="vid-model"><option value="">默认模型</option></select>
@@ -240,6 +267,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
       </div>
     </div>
 
+    <!-- 画布 -->
     <div class="view" id="canvas-view">
       <div id="canvas-wrap">
         <div id="grid"></div>
@@ -269,6 +297,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
     <div class="ctx-item" style="color:#333;padding:12px;" onclick="addNode('text');closeNodePicker()">📄 文本节点</div>
     <div class="ctx-item" style="color:#333;padding:12px;" onclick="addNode('image');closeNodePicker()">🖼️ 图片节点</div>
     <div class="ctx-item" style="color:#333;padding:12px;" onclick="addNode('video');closeNodePicker()">🎬 视频节点</div>
+  </div>
+</div>
+
+<!-- 全屏编辑弹窗 -->
+<div class="fullscreen-edit" id="fullscreen-edit">
+  <div class="box">
+    <div class="title" id="fe-title">编辑输入</div>
+    <textarea id="fe-textarea" placeholder="在这里输入内容..."></textarea>
+    <div class="row">
+      <button class="btn-ghost" onclick="closeExpandEdit()">取消</button>
+      <button class="btn-primary" onclick="confirmExpandEdit()">确定</button>
+    </div>
   </div>
 </div>
 
