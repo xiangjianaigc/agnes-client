@@ -15,9 +15,9 @@ PROJ_PATH = os.path.join(CFG_DIR, "projects.json")
 DEFAULT_CFG = {
     "api_base": "https://apihub.agnes-ai.com/v1",
     "api_key": "",
-    "model_text": "agnes-3.0-flash",
-    "model_image": "agnes-image-2.5-flash",
-    "model_video": "agnes-video-2.5-flash"
+    "model_text": "",
+    "model_image": "",
+    "model_video": ""
 }
 
 def _load(path, default):
@@ -26,8 +26,7 @@ def _load(path, default):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
-            pass
+        except Exception: pass
     return default
 
 def _save(path, data):
@@ -39,18 +38,29 @@ config = _load(CFG_PATH, DEFAULT_CFG.copy())
 for k, v in DEFAULT_CFG.items():
     config.setdefault(k, v)
 
-def projects():
-    return _load(PROJ_PATH, [])
-
-def save_projects(p):
-    _save(PROJ_PATH, p)
+def projects(): return _load(PROJ_PATH, [])
+def save_projects(p): _save(PROJ_PATH, p)
 
 def _headers():
     return {"Authorization": f"Bearer {config['api_key']}", "Content-Type": "application/json"}
 
+def _friendly_err(e):
+    """把各种底层异常转成人类可读的中文"""
+    msg = str(e)
+    if "401" in msg or "Unauthorized" in msg:
+        return "API Key 无效或未授权，请检查设置"
+    if "404" in msg:
+        return "接口路径不存在，请检查 API Base URL 是否正确"
+    if "429" in msg:
+        return "请求过于频繁，请稍后重试"
+    if "Connection" in msg or "Max retries" in msg or "timed out" in msg.lower():
+        return "网络连接失败，请检查网络或 API Base URL"
+    if "500" in msg or "502" in msg or "503" in msg:
+        return "服务器错误，请稍后重试"
+    return msg
+
 class Api:
-    def get_config(self):
-        return config
+    def get_config(self): return config
 
     def save_config(self, cfg):
         for k in ("api_base", "api_key", "model_text", "model_image", "model_video"):
@@ -58,6 +68,31 @@ class Api:
                 config[k] = str(cfg[k]).strip()
         _save(CFG_PATH, config)
         return {"status": "success"}
+
+    # ---------- 自动拉取模型列表 ----------
+    def list_models(self):
+        if not config.get("api_key"):
+            return {"status": "error", "message": "请先设置 API Key"}
+        url = config["api_base"].rstrip("/") + "/models"
+        try:
+            r = requests.get(url, headers=_headers(), timeout=20)
+            r.raise_for_status()
+            res = r.json()
+            # 兼容不同返回格式
+            items = res.get("data") or res.get("models") or res
+            if isinstance(items, dict):
+                items = list(items.values())
+            ids = []
+            for m in items:
+                if isinstance(m, dict):
+                    mid = m.get("id") or m.get("name") or m.get("model")
+                    if mid: ids.append(mid)
+                elif isinstance(m, str):
+                    ids.append(m)
+            ids.sort()
+            return {"status": "success", "models": ids}
+        except Exception as e:
+            return {"status": "error", "message": _friendly_err(e)}
 
     # ---------- 项目 ----------
     def get_projects(self, module):
@@ -70,18 +105,15 @@ class Api:
         now = time.time()
         np = {"id": str(uuid.uuid4()), "type": module, "name": name,
               "data": {}, "created_at": now, "updated_at": now}
-        ps.append(np)
-        save_projects(ps)
+        ps.append(np); save_projects(ps)
         return {"status": "success", "project": np}
 
     def save_project_data(self, pid, data, name=None):
         ps = projects()
         for p in ps:
             if p["id"] == pid:
-                p["data"] = data
-                p["updated_at"] = time.time()
-                if name:
-                    p["name"] = name
+                p["data"] = data; p["updated_at"] = time.time()
+                if name: p["name"] = name
                 break
         save_projects(ps)
         return {"status": "success"}
@@ -96,13 +128,25 @@ class Api:
         save_projects([p for p in projects() if p["id"] != pid])
         return {"status": "success"}
 
-    # ---------- 文本 ----------
-    def text_chat(self, messages, temperature=0.7, max_tokens=4096):
+    # ---------- 文本（支持图片）----------
+    def text_chat(self, messages, images=None, model=None, temperature=0.7, max_tokens=4096):
         if not config.get("api_key"):
             return {"status": "error", "message": "请先设置 API Key"}
         url = config["api_base"].rstrip("/") + "/chat/completions"
+        use_model = model or config.get("model_text") or "agnes-3.0-flash"
+
+        # 如果最后一条是用户消息且带图片，转为多模态格式
+        if images:
+            for msg in reversed(messages):
+                if msg["role"] == "user":
+                    content_parts = [{"type": "text", "text": msg["content"]}]
+                    for img in images:
+                        content_parts.append({"type": "image_url", "image_url": {"url": img}})
+                    msg["content"] = content_parts
+                    break
+
         payload = {
-            "model": config["model_text"],
+            "model": use_model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -115,63 +159,53 @@ class Api:
             content = res["choices"][0]["message"]["content"]
             return {"status": "success", "content": content}
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": _friendly_err(e)}
 
     # ---------- 图片 ----------
-    def generate_image(self, prompt, size="2K", ratio="1:1", images=None):
+    def generate_image(self, prompt, size="2K", ratio="1:1", images=None, model=None):
         if not config.get("api_key"):
             return {"status": "error", "message": "请先设置 API Key"}
         url = config["api_base"].rstrip("/") + "/images/generations"
-        payload = {
-            "model": config["model_image"],
-            "prompt": prompt,
-            "size": size,
-            "ratio": ratio
-        }
-        if images:
-            payload["image"] = images
+        use_model = model or config.get("model_image") or "agnes-image-2.5-flash"
+        payload = {"model": use_model, "prompt": prompt, "size": size, "ratio": ratio}
+        if images: payload["image"] = images
         try:
             r = requests.post(url, headers=_headers(), json=payload, timeout=600)
             r.raise_for_status()
             res = r.json()
             data = res.get("data") or []
-            if not data:
-                return {"status": "error", "message": "接口未返回图片"}
+            if not data: return {"status": "error", "message": "接口未返回图片"}
             item = data[0]
             out = item.get("url")
             b64 = item.get("b64_json")
-            if not out and b64:
-                out = "data:image/png;base64," + b64
+            if not out and b64: out = "data:image/png;base64," + b64
             return {"status": "success", "url": out}
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": _friendly_err(e)}
 
     # ---------- 视频 ----------
     def create_video_task(self, prompt, mode="text", size="720P",
-                          aspect_ratio="16:9", seconds="5", images=None):
+                          aspect_ratio="16:9", seconds="5", images=None, model=None):
         if not config.get("api_key"):
             return {"status": "error", "message": "请先设置 API Key"}
         url = config["api_base"].rstrip("/") + "/videos"
+        use_model = model or config.get("model_video") or "agnes-video-2.5-flash"
         payload = {
-            "model": config["model_video"],
-            "prompt": prompt,
-            "mode": mode,
-            "size": size,
-            "aspect_ratio": aspect_ratio,
-            "seconds": seconds
+            "model": use_model, "prompt": prompt, "mode": mode,
+            "size": size, "aspect_ratio": aspect_ratio, "seconds": seconds
         }
-        if images:
-            payload["images"] = images
+        if images: payload["images"] = images
         try:
             r = requests.post(url, headers=_headers(), json=payload, timeout=120)
             r.raise_for_status()
             return {"status": "success", "raw": r.json()}
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": _friendly_err(e)}
 
-    def wait_video(self, video_id):
+    def wait_video(self, video_id, model=None):
         url = config["api_base"].rstrip("/") + "/agnesapi"
-        params = {"video_id": video_id, "model_name": config["model_video"]}
+        use_model = model or config.get("model_video") or "agnes-video-2.5-flash"
+        params = {"video_id": video_id, "model_name": use_model}
         start = time.time()
         while time.time() - start < 600:
             try:
@@ -187,7 +221,7 @@ class Api:
                 if st in ("failed", "error", "canceled", "cancelled"):
                     return {"status": "error", "message": json.dumps(res, ensure_ascii=False)}
             except Exception as e:
-                return {"status": "error", "message": str(e)}
+                return {"status": "error", "message": _friendly_err(e)}
             time.sleep(2)
         return {"status": "error", "message": "视频生成超时"}
 
