@@ -4,11 +4,15 @@ let currentProjectId = null;
 let canvasScale = 1, canvasX = 0, canvasY = 0;
 let isPanning = false, panStartX, panStartY;
 
-const assets = { chat: [], image: [], video: [], canvas: {} };
+// 每个模块对应一个素材列表（切换项目时清空）
+const assets = { chat: [], image: [], video: [] };
 let assetCounter = { chat: 1, image: 1, video: 1 };
 
-// 缓存最近一次拉取到的全部模型（用于分类过滤）
+// 缓存最近一次拉取到的全部模型
 let allModelsCache = [];
+
+// 全屏编辑状态
+let feModule = null;
 
 // ===== 初始化 =====
 window.addEventListener('pywebviewready', async () => {
@@ -34,19 +38,16 @@ function filterModelsByType(type) {
   return allModelsCache.filter(m => classifyModel(m) === type);
 }
 
-// ===== 模型列表自动拉取 =====
 async function loadAllModelLists() {
   const res = await window.pywebview.api.list_models();
   if (res.status !== 'success') return;
   const models = res.models || [];
   if (!models.length) return;
   allModelsCache = models;
-
   const cfg = await window.pywebview.api.get_config();
   const textModels = filterModelsByType('text');
   const imageModels = filterModelsByType('image');
   const videoModels = filterModelsByType('video');
-
   populateModelSelect('chat-model', textModels, cfg.model_text);
   populateModelSelect('img-model', imageModels, cfg.model_image);
   populateModelSelect('vid-model', videoModels, cfg.model_video);
@@ -57,22 +58,16 @@ function populateModelSelect(id, models, current) {
   if (!sel) return;
   const old = sel.value;
   sel.innerHTML = '<option value="">默认模型</option>';
-  // 保证当前值即使在过滤列表外也保留
   const listToUse = models.slice();
   if (current && !listToUse.includes(current)) listToUse.unshift(current);
   listToUse.forEach(m => {
     const opt = document.createElement('option');
-    opt.value = m;
-    opt.textContent = m;
+    opt.value = m; opt.textContent = m;
     sel.appendChild(opt);
   });
-  if (current && listToUse.includes(current)) {
-    sel.value = current;
-  } else if (old && listToUse.includes(old)) {
-    sel.value = old;
-  } else if (current) {
-    sel.value = current;
-  }
+  if (current && listToUse.includes(current)) sel.value = current;
+  else if (old && listToUse.includes(old)) sel.value = old;
+  else if (current) sel.value = current;
 }
 
 // ===== 模块切换 =====
@@ -121,9 +116,9 @@ async function newTask() {
   if (res.status === 'success') {
     currentProjectId = res.project.id;
     clearCurrentView();
-    if (currentModule === 'chat') { assets.chat = []; assetCounter.chat = 1; renderAssetPanel('chat'); }
-    if (currentModule === 'image') { assets.image = []; assetCounter.image = 1; renderAssetPanel('image'); }
-    if (currentModule === 'video') { assets.video = []; assetCounter.video = 1; renderAssetPanel('video'); }
+    if (currentModule === 'chat') { assets.chat = []; assetCounter.chat = 1; renderAssetList('chat'); }
+    if (currentModule === 'image') { assets.image = []; assetCounter.image = 1; renderAssetList('image'); }
+    if (currentModule === 'video') { assets.video = []; assetCounter.video = 1; renderAssetList('video'); }
     await refreshProjects();
     updateEmptyState();
     if (currentModule === 'canvas') addNode('text');
@@ -138,6 +133,12 @@ async function openProject(pid) {
   currentProjectId = pid;
   const p = res.project;
   clearCurrentView();
+
+  // 清空素材（每个任务独立）
+  if (currentModule === 'chat') { assets.chat = []; renderAssetList('chat'); }
+  if (currentModule === 'image') { assets.image = []; renderAssetList('image'); }
+  if (currentModule === 'video') { assets.video = []; renderAssetList('video'); }
+
   if (p.type === 'chat') {
     (p.data.messages || []).forEach(m => appendMsg(m.role, m.content, m.images));
   } else if (p.type === 'image') {
@@ -183,9 +184,13 @@ async function autoSave() {
   if (currentModule === 'chat') {
     const msgs = [];
     document.querySelectorAll('#chat-history .msg').forEach(m => {
+      let content = m.dataset.raw || '';
+      const imgs = [];
+      m.querySelectorAll('.msg-imgs img').forEach(img => imgs.push(img.src));
       msgs.push({
         role: m.classList.contains('user') ? 'user' : 'assistant',
-        content: m.dataset.raw || m.innerText
+        content: content,
+        images: imgs
       });
     });
     data.messages = msgs;
@@ -218,8 +223,8 @@ async function autoSave() {
   await window.pywebview.api.save_project_data(currentProjectId, data);
 }
 
-// ===== 素材管理 =====
-function renderAssetPanel(module) {
+// ===== 素材管理（上传按钮永远保持 +）=====
+function renderAssetList(module) {
   const el = document.getElementById(module + '-assets');
   if (!el) return;
   el.innerHTML = '';
@@ -231,22 +236,11 @@ function renderAssetPanel(module) {
     chip.innerHTML = `<img src="${a.base64}"><div class="rm" onclick="removeAsset('${module}', ${i})">✕</div>`;
     el.appendChild(chip);
   });
-  const boxMap = { chat: 'chat-upload', image: 'img-upload', video: 'vid-upload' };
-  const box = document.getElementById(boxMap[module]);
-  if (box) {
-    if (list.length) {
-      box.classList.add('has-img');
-      box.innerHTML = `<img src="${list[list.length-1].base64}">${list.length > 1 ? `<div class="count">${list.length}</div>` : ''}`;
-    } else {
-      box.classList.remove('has-img');
-      box.innerHTML = '+';
-    }
-  }
 }
 
 function removeAsset(module, index) {
   assets[module].splice(index, 1);
-  renderAssetPanel(module);
+  renderAssetList(module);
 }
 
 async function handleUpload(module, fileList) {
@@ -260,14 +254,23 @@ async function handleUpload(module, fileList) {
       base64: b64
     });
   }
-  renderAssetPanel(module);
+  renderAssetList(module);
 }
 
-document.getElementById('chat-ref').addEventListener('change', e => handleUpload('chat', e.target.files));
-document.getElementById('img-ref').addEventListener('change', e => handleUpload('image', e.target.files));
-document.getElementById('vid-ref').addEventListener('change', e => handleUpload('video', e.target.files));
+document.getElementById('chat-ref').addEventListener('change', async e => {
+  await handleUpload('chat', e.target.files);
+  e.target.value = '';  // 允许重复选择同一文件
+});
+document.getElementById('img-ref').addEventListener('change', async e => {
+  await handleUpload('image', e.target.files);
+  e.target.value = '';
+});
+document.getElementById('vid-ref').addEventListener('change', async e => {
+  await handleUpload('video', e.target.files);
+  e.target.value = '';
+});
 
-// ===== @ 素材 =====
+// ===== @ 素材弹窗 =====
 function bindAt(inputId, popupId, module) {
   const input = document.getElementById(inputId);
   const popup = document.getElementById(popupId);
@@ -276,7 +279,7 @@ function bindAt(inputId, popupId, module) {
     const pos = input.selectionStart;
     if (val[pos-1] === '@') {
       const list = assets[module] || [];
-      if (!list.length) return;
+      if (!list.length) { popup.classList.remove('show'); return; }
       popup.innerHTML = '<div class="at-hint">选择要引用的素材</div>';
       list.forEach((a, i) => {
         const item = document.createElement('div');
@@ -319,14 +322,19 @@ function parseAt(text, module) {
 function appendMsg(role, content, images) {
   const div = document.createElement('div');
   div.className = 'msg ' + (role === 'user' ? 'user' : 'ai');
-  div.dataset.raw = content;
-  div.textContent = content;
+  // 只把非 @[img:N] 部分作为文本
+  const displayContent = (content || '').replace(/@\[img:\d+\]/g, '').replace(/\s+/g, ' ').trim();
+  div.dataset.raw = content || '';
+  div.textContent = displayContent || content || '';
   if (images && images.length) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg-imgs';
     images.forEach(b64 => {
       const img = document.createElement('img');
       img.src = b64;
-      div.appendChild(img);
+      wrap.appendChild(img);
     });
+    div.appendChild(wrap);
   }
   document.getElementById('chat-history').appendChild(div);
   const h = document.getElementById('chat-history');
@@ -366,7 +374,7 @@ async function sendChat() {
   tmp.remove();
   if (res.status === 'success') {
     appendMsg('assistant', res.content);
-    autoSave();
+    await autoSave();
   } else {
     appendMsg('assistant', '[错误] ' + res.message);
   }
@@ -394,7 +402,7 @@ async function doImage() {
     model
   );
   btn.disabled = false; btn.textContent = '生成';
-  if (res.status === 'success') { addImageCard(res.url); autoSave(); }
+  if (res.status === 'success') { addImageCard(res.url); await autoSave(); }
   else { alert('失败：' + res.message); }
 }
 
@@ -449,7 +457,7 @@ async function doVideo() {
   if (waitRes.status === 'success') {
     status.textContent = '生成完成';
     addVideoCard({ prompt: text, url: waitRes.url, video_id: vid });
-    autoSave();
+    await autoSave();
   } else {
     status.textContent = '失败：' + waitRes.message;
   }
@@ -591,6 +599,7 @@ function nodeUploadImage(btn) {
     }
     window.nodeAssets.set(node, list);
     renderNodeAssets(node);
+    input.value = '';
   };
   input.click();
 }
@@ -605,12 +614,14 @@ function renderNodeAssets(node) {
   el.style.gap = '6px';
   list.forEach((a, i) => {
     const chip = document.createElement('div');
-    chip.className = 'asset-chip';
+    chip.style.position = 'relative';
     chip.style.width = '34px';
     chip.style.height = '34px';
-    chip.style.position = 'relative';
-    chip.innerHTML = `<img src="${a.base64}" style="width:100%;height:100%;object-fit:cover;border-radius:5px;"><div class="rm" style="position:absolute;top:-2px;right:-2px;background:rgba(0,0,0,.6);color:#fff;font-size:9px;width:13px;height:13px;line-height:13px;text-align:center;border-radius:50%;cursor:pointer;">✕</div>`;
-    chip.querySelector('.rm').onclick = () => {
+    chip.style.borderRadius = '5px';
+    chip.style.overflow = 'hidden';
+    chip.style.border = '1px solid #333';
+    chip.innerHTML = `<img src="${a.base64}" style="width:100%;height:100%;object-fit:cover;"><div style="position:absolute;top:-2px;right:-2px;background:rgba(0,0,0,.65);color:#fff;font-size:9px;width:13px;height:13px;line-height:13px;text-align:center;border-radius:50%;cursor:pointer;">✕</div>`;
+    chip.querySelector('div').onclick = () => {
       list.splice(i, 1);
       window.nodeAssets.set(node, list);
       renderNodeAssets(node);
@@ -658,6 +669,28 @@ async function saveCanvas() {
   alert('已保存');
 }
 
+// ===== 全屏编辑 =====
+function expandEdit(module) {
+  feModule = module;
+  const map = { chat: 'chat-input', image: 'img-prompt', video: 'vid-prompt' };
+  const titles = { chat: '编辑对话内容', image: '编辑图片提示词', video: '编辑视频描述' };
+  const src = document.getElementById(map[module]);
+  document.getElementById('fe-textarea').value = src.value;
+  document.getElementById('fe-title').textContent = titles[module];
+  document.getElementById('fullscreen-edit').classList.add('show');
+  setTimeout(() => document.getElementById('fe-textarea').focus(), 100);
+}
+function closeExpandEdit() {
+  document.getElementById('fullscreen-edit').classList.remove('show');
+  feModule = null;
+}
+function confirmExpandEdit() {
+  const map = { chat: 'chat-input', image: 'img-prompt', video: 'vid-prompt' };
+  const val = document.getElementById('fe-textarea').value;
+  document.getElementById(map[feModule]).value = val;
+  closeExpandEdit();
+}
+
 // ===== 设置 =====
 function openSettings() { document.getElementById('settings-modal').classList.add('show'); }
 function closeSettings() { document.getElementById('settings-modal').classList.remove('show'); }
@@ -703,12 +736,10 @@ async function fetchModels() {
 
   status.textContent = `成功拉取 ${models.length} 个模型（文本 ${textModels.length} / 图片 ${imageModels.length} / 视频 ${videoModels.length}）`;
 
-  // 设置里的三个下拉也按类型过滤
   fillSelectWithModels('set-model-text', textModels, document.getElementById('set-model-text').value);
   fillSelectWithModels('set-model-image', imageModels, document.getElementById('set-model-image').value);
   fillSelectWithModels('set-model-video', videoModels, document.getElementById('set-model-video').value);
 
-  // 主界面工具栏下拉也按类型过滤
   populateModelSelect('chat-model', textModels, document.getElementById('chat-model').value);
   populateModelSelect('img-model', imageModels, document.getElementById('img-model').value);
   populateModelSelect('vid-model', videoModels, document.getElementById('vid-model').value);
