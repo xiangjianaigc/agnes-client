@@ -7,6 +7,9 @@ let isPanning = false, panStartX, panStartY;
 const assets = { chat: [], image: [], video: [], canvas: {} };
 let assetCounter = { chat: 1, image: 1, video: 1 };
 
+// 缓存最近一次拉取到的全部模型（用于分类过滤）
+let allModelsCache = [];
+
 // ===== 初始化 =====
 window.addEventListener('pywebviewready', async () => {
   const cfg = await window.pywebview.api.get_config();
@@ -19,16 +22,34 @@ window.addEventListener('pywebviewready', async () => {
   switchModule('chat');
 });
 
+// ===== 模型分类 =====
+function classifyModel(id) {
+  const s = (id || '').toLowerCase();
+  if (/video|veo|sora|kling|runway|pika|wan\d|hunyuan.*video|luma|minimax.*video|seedance/i.test(s)) return 'video';
+  if (/image|img|dall-?e|flux|stable-?diffusion|sd[-_]?\d|midjourney|seedream|kolors|jimeng.*image/i.test(s)) return 'image';
+  return 'text';
+}
+
+function filterModelsByType(type) {
+  return allModelsCache.filter(m => classifyModel(m) === type);
+}
+
 // ===== 模型列表自动拉取 =====
 async function loadAllModelLists() {
   const res = await window.pywebview.api.list_models();
   if (res.status !== 'success') return;
   const models = res.models || [];
   if (!models.length) return;
+  allModelsCache = models;
+
   const cfg = await window.pywebview.api.get_config();
-  populateModelSelect('chat-model', models, cfg.model_text);
-  populateModelSelect('img-model', models, cfg.model_image);
-  populateModelSelect('vid-model', models, cfg.model_video);
+  const textModels = filterModelsByType('text');
+  const imageModels = filterModelsByType('image');
+  const videoModels = filterModelsByType('video');
+
+  populateModelSelect('chat-model', textModels, cfg.model_text);
+  populateModelSelect('img-model', imageModels, cfg.model_image);
+  populateModelSelect('vid-model', videoModels, cfg.model_video);
 }
 
 function populateModelSelect(id, models, current) {
@@ -36,13 +57,22 @@ function populateModelSelect(id, models, current) {
   if (!sel) return;
   const old = sel.value;
   sel.innerHTML = '<option value="">默认模型</option>';
-  models.forEach(m => {
+  // 保证当前值即使在过滤列表外也保留
+  const listToUse = models.slice();
+  if (current && !listToUse.includes(current)) listToUse.unshift(current);
+  listToUse.forEach(m => {
     const opt = document.createElement('option');
     opt.value = m;
     opt.textContent = m;
     sel.appendChild(opt);
   });
-  sel.value = current && models.includes(current) ? current : old || '';
+  if (current && listToUse.includes(current)) {
+    sel.value = current;
+  } else if (old && listToUse.includes(old)) {
+    sel.value = old;
+  } else if (current) {
+    sel.value = current;
+  }
 }
 
 // ===== 模块切换 =====
@@ -665,21 +695,43 @@ async function fetchModels() {
     return;
   }
   const models = res.models || [];
-  status.textContent = '成功拉取 ' + models.length + ' 个模型';
-  ['set-model-text', 'set-model-image', 'set-model-video'].forEach(id => {
-    const sel = document.getElementById(id);
-    const cur = sel.value;
-    sel.innerHTML = '';
-    models.forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m; opt.textContent = m;
-      sel.appendChild(opt);
-    });
-    if (cur && models.includes(cur)) sel.value = cur;
+  allModelsCache = models;
+
+  const textModels = filterModelsByType('text');
+  const imageModels = filterModelsByType('image');
+  const videoModels = filterModelsByType('video');
+
+  status.textContent = `成功拉取 ${models.length} 个模型（文本 ${textModels.length} / 图片 ${imageModels.length} / 视频 ${videoModels.length}）`;
+
+  // 设置里的三个下拉也按类型过滤
+  fillSelectWithModels('set-model-text', textModels, document.getElementById('set-model-text').value);
+  fillSelectWithModels('set-model-image', imageModels, document.getElementById('set-model-image').value);
+  fillSelectWithModels('set-model-video', videoModels, document.getElementById('set-model-video').value);
+
+  // 主界面工具栏下拉也按类型过滤
+  populateModelSelect('chat-model', textModels, document.getElementById('chat-model').value);
+  populateModelSelect('img-model', imageModels, document.getElementById('img-model').value);
+  populateModelSelect('vid-model', videoModels, document.getElementById('vid-model').value);
+}
+
+function fillSelectWithModels(id, models, cur) {
+  const sel = document.getElementById(id);
+  if (!sel) return;
+  sel.innerHTML = '';
+  const listToUse = models.slice();
+  if (cur && !listToUse.includes(cur)) listToUse.unshift(cur);
+  if (!listToUse.length) {
+    const opt = document.createElement('option');
+    opt.value = ''; opt.textContent = '（无匹配模型）';
+    sel.appendChild(opt);
+    return;
+  }
+  listToUse.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m; opt.textContent = m;
+    sel.appendChild(opt);
   });
-  populateModelSelect('chat-model', models, document.getElementById('chat-model').value);
-  populateModelSelect('img-model', models, document.getElementById('img-model').value);
-  populateModelSelect('vid-model', models, document.getElementById('vid-model').value);
+  if (cur && listToUse.includes(cur)) sel.value = cur;
 }
 
 async function diagnose() {
