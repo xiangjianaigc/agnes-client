@@ -26,7 +26,8 @@ def _load(path, default):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception: pass
+        except Exception:
+            pass
     return default
 
 def _save(path, data):
@@ -38,14 +39,19 @@ config = _load(CFG_PATH, DEFAULT_CFG.copy())
 for k, v in DEFAULT_CFG.items():
     config.setdefault(k, v)
 
-def projects(): return _load(PROJ_PATH, [])
-def save_projects(p): _save(PROJ_PATH, p)
+def projects():
+    return _load(PROJ_PATH, [])
+
+def save_projects(p):
+    _save(PROJ_PATH, p)
 
 def _headers():
-    return {"Authorization": f"Bearer {config['api_key']}", "Content-Type": "application/json"}
+    return {
+        "Authorization": f"Bearer {config['api_key']}",
+        "Content-Type": "application/json"
+    }
 
 def _friendly_err(e):
-    """把各种底层异常转成人类可读的中文"""
     msg = str(e)
     if "401" in msg or "Unauthorized" in msg:
         return "API Key 无效或未授权，请检查设置"
@@ -60,7 +66,8 @@ def _friendly_err(e):
     return msg
 
 class Api:
-    def get_config(self): return config
+    def get_config(self):
+        return config
 
     def save_config(self, cfg):
         for k in ("api_base", "api_key", "model_text", "model_image", "model_video"):
@@ -69,7 +76,54 @@ class Api:
         _save(CFG_PATH, config)
         return {"status": "success"}
 
-    # ---------- 自动拉取模型列表 ----------
+    # ---------- 诊断连接 ----------
+    def diagnose(self):
+        if not config.get("api_key"):
+            return {"status": "error", "message": "API Key 为空"}
+
+        base = config["api_base"].rstrip("/")
+        key = config["api_key"]
+        info = {
+            "api_base_raw": config["api_base"],
+            "api_base_final": base,
+            "key_length": len(key),
+            "key_prefix": key[:8] if len(key) > 8 else key,
+            "key_suffix": key[-4:] if len(key) > 4 else "",
+            "key_has_space": (" " in key or "\n" in key or "\t" in key or "\r" in key),
+            "url_to_try": base + "/models"
+        }
+
+        try:
+            r = requests.get(base + "/models", headers=_headers(), timeout=15)
+            info["http_status"] = r.status_code
+            info["response_preview"] = r.text[:800]
+            if r.status_code == 200:
+                info["result"] = "✅ 接口连通，Key 有效"
+            elif r.status_code == 401:
+                info["result"] = "❌ 401 未授权：Key 错误、过期，或认证 header 格式不对"
+            elif r.status_code == 404:
+                info["result"] = "❌ 404 路径错误：API Base URL 可能不对（末尾必须是 /v1）"
+            else:
+                info["result"] = f"❌ HTTP {r.status_code}"
+        except Exception as e:
+            info["result"] = "❌ 请求异常：" + str(e)
+            info["http_status"] = None
+            info["response_preview"] = None
+
+        # 再试一次用 x-api-key 而不是 Bearer（有些平台用这种）
+        try:
+            r2 = requests.get(base + "/models",
+                              headers={"x-api-key": key, "Content-Type": "application/json"},
+                              timeout=15)
+            info["xapikey_status"] = r2.status_code
+            info["xapikey_preview"] = r2.text[:300]
+        except Exception as e:
+            info["xapikey_status"] = "异常"
+            info["xapikey_preview"] = str(e)
+
+        return {"status": "success", "info": info}
+
+    # ---------- 拉取模型 ----------
     def list_models(self):
         if not config.get("api_key"):
             return {"status": "error", "message": "请先设置 API Key"}
@@ -78,7 +132,6 @@ class Api:
             r = requests.get(url, headers=_headers(), timeout=20)
             r.raise_for_status()
             res = r.json()
-            # 兼容不同返回格式
             items = res.get("data") or res.get("models") or res
             if isinstance(items, dict):
                 items = list(items.values())
@@ -86,7 +139,8 @@ class Api:
             for m in items:
                 if isinstance(m, dict):
                     mid = m.get("id") or m.get("name") or m.get("model")
-                    if mid: ids.append(mid)
+                    if mid:
+                        ids.append(mid)
                 elif isinstance(m, str):
                     ids.append(m)
             ids.sort()
@@ -105,15 +159,18 @@ class Api:
         now = time.time()
         np = {"id": str(uuid.uuid4()), "type": module, "name": name,
               "data": {}, "created_at": now, "updated_at": now}
-        ps.append(np); save_projects(ps)
+        ps.append(np)
+        save_projects(ps)
         return {"status": "success", "project": np}
 
     def save_project_data(self, pid, data, name=None):
         ps = projects()
         for p in ps:
             if p["id"] == pid:
-                p["data"] = data; p["updated_at"] = time.time()
-                if name: p["name"] = name
+                p["data"] = data
+                p["updated_at"] = time.time()
+                if name:
+                    p["name"] = name
                 break
         save_projects(ps)
         return {"status": "success"}
@@ -128,14 +185,13 @@ class Api:
         save_projects([p for p in projects() if p["id"] != pid])
         return {"status": "success"}
 
-    # ---------- 文本（支持图片）----------
+    # ---------- 文本 ----------
     def text_chat(self, messages, images=None, model=None, temperature=0.7, max_tokens=4096):
         if not config.get("api_key"):
             return {"status": "error", "message": "请先设置 API Key"}
         url = config["api_base"].rstrip("/") + "/chat/completions"
         use_model = model or config.get("model_text") or "agnes-3.0-flash"
 
-        # 如果最后一条是用户消息且带图片，转为多模态格式
         if images:
             for msg in reversed(messages):
                 if msg["role"] == "user":
@@ -168,17 +224,20 @@ class Api:
         url = config["api_base"].rstrip("/") + "/images/generations"
         use_model = model or config.get("model_image") or "agnes-image-2.5-flash"
         payload = {"model": use_model, "prompt": prompt, "size": size, "ratio": ratio}
-        if images: payload["image"] = images
+        if images:
+            payload["image"] = images
         try:
             r = requests.post(url, headers=_headers(), json=payload, timeout=600)
             r.raise_for_status()
             res = r.json()
             data = res.get("data") or []
-            if not data: return {"status": "error", "message": "接口未返回图片"}
+            if not data:
+                return {"status": "error", "message": "接口未返回图片"}
             item = data[0]
             out = item.get("url")
             b64 = item.get("b64_json")
-            if not out and b64: out = "data:image/png;base64," + b64
+            if not out and b64:
+                out = "data:image/png;base64," + b64
             return {"status": "success", "url": out}
         except Exception as e:
             return {"status": "error", "message": _friendly_err(e)}
@@ -191,10 +250,15 @@ class Api:
         url = config["api_base"].rstrip("/") + "/videos"
         use_model = model or config.get("model_video") or "agnes-video-2.5-flash"
         payload = {
-            "model": use_model, "prompt": prompt, "mode": mode,
-            "size": size, "aspect_ratio": aspect_ratio, "seconds": seconds
+            "model": use_model,
+            "prompt": prompt,
+            "mode": mode,
+            "size": size,
+            "aspect_ratio": aspect_ratio,
+            "seconds": seconds
         }
-        if images: payload["images"] = images
+        if images:
+            payload["images"] = images
         try:
             r = requests.post(url, headers=_headers(), json=payload, timeout=120)
             r.raise_for_status()
