@@ -24,10 +24,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
 .new-task:hover{background:#eff6ff;border-color:var(--accent);}
 .section-label{padding:0 20px;color:#999;font-size:11px;margin-top:10px;margin-bottom:6px;}
 #project-list{flex:1;overflow-y:auto;padding:0 10px 20px;}
-.proj{padding:10px 12px;border-radius:8px;cursor:pointer;color:#555;font-size:13.5px;display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;}
+.proj{padding:10px 12px;border-radius:8px;cursor:pointer;color:#555;font-size:13.5px;display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;transition:.1s;border-left:2px solid transparent;}
 .proj:hover{background:#e5e7eb;}
-.proj.active{background:#dbeafe;color:var(--accent);font-weight:500;}
-.proj .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
+.proj.active{background:#dbeafe;color:var(--accent);font-weight:500;border-left-color:var(--accent);}
+.proj .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;display:flex;align-items:center;gap:6px;}
+.proj .status-dot{width:8px;height:8px;border-radius:50%;background:#10b981;flex-shrink:0;display:none;}
+.proj .status-dot.generating{background:#f59e0b;display:inline-block;animation:pulse 1.4s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .proj .del{color:#bbb;font-size:12px;padding:2px 6px;border-radius:4px;visibility:hidden;}
 .proj:hover .del{visibility:visible;}
 .proj .del:hover{color:#e11d48;background:#fff;}
@@ -54,30 +57,76 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
 .input-panel{padding:16px 8%;border-top:1px solid #f0f0f0;background:#fff;}
 .input-box{border:1px solid #e0e0e0;border-radius:14px;padding:14px 16px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.03);transition:.2s;position:relative;}
 .input-box:focus-within{border-color:var(--accent);box-shadow:0 2px 14px rgba(59,130,246,.1);}
-.input-box textarea{width:100%;border:none;outline:none;resize:vertical;font-family:inherit;font-size:14px;min-height:100px;max-height:400px;line-height:1.6;background:transparent;padding-right:36px;}
-
-.expand-btn{position:absolute;top:10px;right:10px;width:28px;height:28px;border-radius:6px;background:#f5f5f5;border:none;cursor:pointer;color:#666;font-size:14px;display:flex;align-items:center;justify-content:center;transition:.15s;}
-.expand-btn:hover{background:var(--accent);color:#fff;}
-
-.input-toolbar{display:flex;gap:8px;align-items:center;padding-top:10px;flex-wrap:wrap;}
-.tb-btn{padding:6px 10px;background:#f5f5f5;border:none;border-radius:8px;cursor:pointer;font-size:12px;color:#555;display:flex;align-items:center;gap:4px;transition:.15s;font-family:inherit;}
-.tb-btn:hover{background:#e8e8e8;}
-.tb-btn.primary{background:var(--accent);color:#fff;margin-left:auto;padding:8px 20px;font-weight:600;}
-.tb-btn.primary:hover{background:#2563eb;}
-.tb-btn.primary:disabled{opacity:.5;cursor:not-allowed;}
-.tb-select{padding:6px 8px;background:#f5f5f5;border:none;border-radius:8px;cursor:pointer;font-size:12px;color:#555;outline:none;font-family:inherit;max-width:220px;}
-
-/* 上传区：按钮 + 独立缩略图列表 */
-.upload-row{display:flex;gap:12px;align-items:flex-start;margin-bottom:10px;}
-.upload-box{width:48px;height:48px;border:1px dashed #ccc;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#aaa;font-size:22px;transition:.15s;flex-shrink:0;background:#fff;}
-.upload-box:hover{border-color:var(--accent);color:var(--accent);}
-.asset-list{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-height:48px;align-items:center;}
-
-.asset-chip{position:relative;width:48px;height:48px;border-radius:8px;overflow:hidden;border:1px solid #eee;cursor:pointer;}
-.asset-chip img{width:100%;height:100%;object-fit:cover;}
-.asset-chip .rm{position:absolute;top:-1px;right:-1px;background:rgba(0,0,0,.65);color:#fff;font-size:10px;width:16px;height:16px;line-height:16px;text-align:center;border-radius:50%;cursor:pointer;}
 
 .input-main{flex:1;position:relative;}
+
+/* contenteditable 输入区 */
+.input-editor{
+  width:100%;
+  min-height:100px;
+  max-height:400px;
+  overflow-y:auto;
+  padding:2px 36px 2px 0;
+  font-size:14px;
+  line-height:1.7;
+  outline:none;
+  white-space:pre-wrap;
+  word-wrap:break-word;
+  transition:.2s;
+}
+.input-editor:empty::before{
+  content:attr(data-placeholder);
+  color:#bbb;
+  pointer-events:none;
+}
+.input-editor.expanded{
+  min-height:400px;
+  max-height:60vh;
+}
+
+.expand-btn{position:absolute;top:4px;right:0;width:28px;height:28px;border-radius:6px;background:#f5f5f5;border:none;cursor:pointer;color:#666;font-size:14px;display:flex;align-items:center;justify-content:center;transition:.15s;z-index:5;}
+.expand-btn:hover{background:var(--accent);color:#fff;}
+
+/* @ chip（输入框内的缩略图） */
+.at-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  background:#eef4ff;
+  border:1px solid #c7dbff;
+  padding:1px 6px 1px 2px;
+  border-radius:8px;
+  vertical-align:middle;
+  margin:0 3px;
+  cursor:default;
+  user-select:none;
+  font-size:12px;
+  color:#3b82f6;
+}
+.at-chip img{
+  width:22px;height:22px;border-radius:6px;object-fit:cover;
+}
+.at-chip .chip-remove{
+  color:#888;cursor:pointer;font-size:13px;padding:0 2px;line-height:1;
+}
+.at-chip .chip-remove:hover{color:#e11d48;}
+
+/* 悬浮预览 */
+.at-preview{
+  position:fixed;
+  display:none;
+  z-index:3000;
+  padding:6px;
+  background:#fff;
+  border-radius:12px;
+  box-shadow:0 10px 40px rgba(0,0,0,.25);
+  border:1px solid #eee;
+  pointer-events:none;
+  max-width:340px;
+  max-height:340px;
+}
+.at-preview.show{display:block;}
+.at-preview img{max-width:320px;max-height:320px;border-radius:8px;display:block;}
 
 /* @ 弹窗 */
 .at-popup{position:absolute;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.12);padding:6px;width:260px;max-height:260px;overflow-y:auto;display:none;z-index:500;}
@@ -88,21 +137,23 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
 .at-item img{width:32px;height:32px;object-fit:cover;border-radius:6px;border:1px solid #eee;}
 .at-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333;}
 
-/* 输入框内联的 @ 素材缩略图标记 */
-.at-chip{display:inline-flex;align-items:center;gap:4px;background:#eef4ff;border:1px solid #c7dbff;color:var(--accent);font-size:12px;padding:2px 6px;border-radius:6px;vertical-align:middle;margin:0 2px;}
-.at-chip img{width:18px;height:18px;border-radius:4px;object-fit:cover;}
+.input-toolbar{display:flex;gap:8px;align-items:center;padding-top:10px;flex-wrap:wrap;}
+.tb-btn{padding:6px 10px;background:#f5f5f5;border:none;border-radius:8px;cursor:pointer;font-size:12px;color:#555;display:flex;align-items:center;gap:4px;transition:.15s;font-family:inherit;}
+.tb-btn:hover{background:#e8e8e8;}
+.tb-btn.primary{background:var(--accent);color:#fff;margin-left:auto;padding:8px 20px;font-weight:600;}
+.tb-btn.primary:hover{background:#2563eb;}
+.tb-btn.primary:disabled{opacity:.5;cursor:not-allowed;}
+.tb-select{padding:6px 8px;background:#f5f5f5;border:none;border-radius:8px;cursor:pointer;font-size:12px;color:#555;outline:none;font-family:inherit;max-width:220px;}
 
-/* 全屏编辑弹窗 */
-.fullscreen-edit{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:1500;}
-.fullscreen-edit.show{display:flex;}
-.fullscreen-edit .box{background:#fff;border-radius:14px;width:80vw;max-width:1000px;height:80vh;padding:24px;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 60px rgba(0,0,0,.3);}
-.fullscreen-edit textarea{flex:1;border:1px solid var(--border);border-radius:10px;padding:14px;font-family:inherit;font-size:14px;line-height:1.6;resize:none;outline:none;}
-.fullscreen-edit textarea:focus{border-color:var(--accent);}
-.fullscreen-edit .row{display:flex;gap:10px;justify-content:flex-end;}
-.fullscreen-edit button{padding:9px 20px;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;}
-.fullscreen-edit .btn-ghost{background:#f0f0f0;color:#333;}
-.fullscreen-edit .btn-primary{background:var(--accent);color:#fff;}
-.fullscreen-edit .title{font-size:14px;color:#666;}
+/* 上传区 */
+.upload-row{display:flex;gap:12px;align-items:flex-start;margin-bottom:10px;}
+.upload-box{width:48px;height:48px;border:1px dashed #ccc;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#aaa;font-size:22px;transition:.15s;flex-shrink:0;background:#fff;}
+.upload-box:hover{border-color:var(--accent);color:var(--accent);}
+.asset-list{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-height:48px;align-items:center;}
+
+.asset-chip{position:relative;width:48px;height:48px;border-radius:8px;overflow:hidden;border:1px solid #eee;cursor:default;}
+.asset-chip img{width:100%;height:100%;object-fit:cover;}
+.asset-chip .rm{position:absolute;top:-1px;right:-1px;background:rgba(0,0,0,.65);color:#fff;font-size:10px;width:16px;height:16px;line-height:16px;text-align:center;border-radius:50%;cursor:pointer;}
 
 .gallery{padding:20px 8%;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;overflow-y:auto;flex:1;}
 .gallery img{width:100%;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,.08);cursor:pointer;transition:.2s;}
@@ -186,8 +237,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
             <div class="asset-list" id="chat-assets"></div>
           </div>
           <div class="input-main">
-            <button class="expand-btn" onclick="expandEdit('chat')" title="放大输入框">⤢</button>
-            <textarea id="chat-input" placeholder="输入消息... 按 @ 引用素材，Enter 发送，Shift+Enter 换行"></textarea>
+            <button class="expand-btn" onclick="toggleExpand('chat-input')" title="放大/缩小输入框">⤢</button>
+            <div class="input-editor" id="chat-input" contenteditable="true" data-placeholder="输入消息... 按 @ 引用素材，Enter 发送，Shift+Enter 换行"></div>
             <div class="at-popup" id="chat-at"></div>
           </div>
           <div class="input-toolbar">
@@ -215,8 +266,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
             <div class="asset-list" id="image-assets"></div>
           </div>
           <div class="input-main">
-            <button class="expand-btn" onclick="expandEdit('image')" title="放大输入框">⤢</button>
-            <textarea id="img-prompt" placeholder="描述你想要的画面... 按 @ 引用素材"></textarea>
+            <button class="expand-btn" onclick="toggleExpand('img-prompt')" title="放大/缩小输入框">⤢</button>
+            <div class="input-editor" id="img-prompt" contenteditable="true" data-placeholder="描述你想要的画面... 按 @ 引用素材"></div>
             <div class="at-popup" id="img-at"></div>
           </div>
           <div class="input-toolbar">
@@ -245,8 +296,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
             <div class="asset-list" id="video-assets"></div>
           </div>
           <div class="input-main">
-            <button class="expand-btn" onclick="expandEdit('video')" title="放大输入框">⤢</button>
-            <textarea id="vid-prompt" placeholder="描述你想要的视频... 按 @ 引用素材"></textarea>
+            <button class="expand-btn" onclick="toggleExpand('vid-prompt')" title="放大/缩小输入框">⤢</button>
+            <div class="input-editor" id="vid-prompt" contenteditable="true" data-placeholder="描述你想要的视频... 按 @ 引用素材"></div>
             <div class="at-popup" id="vid-at"></div>
           </div>
           <div class="input-toolbar">
@@ -258,7 +309,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
             </select>
             <select class="tb-select" id="vid-size"><option>720P</option></select>
             <select class="tb-select" id="vid-ratio"><option>16:9</option><option>9:16</option><option>1:1</option></select>
-            <select class="tb-select" id="vid-seconds"><option value="5">5秒</option><option value="10">10秒</option></select>
+            <select class="tb-select" id="vid-seconds">
+              <option value="5">5秒</option>
+              <option value="10">10秒</option>
+              <option value="12">12秒</option>
+            </select>
             <button class="tb-btn primary" id="vid-gen" onclick="doVideo()">生成</button>
           </div>
           <div id="vid-status" style="font-size:12px;color:#888;margin-top:8px;"></div>
@@ -297,18 +352,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC
     <div class="ctx-item" style="color:#333;padding:12px;" onclick="addNode('text');closeNodePicker()">📄 文本节点</div>
     <div class="ctx-item" style="color:#333;padding:12px;" onclick="addNode('image');closeNodePicker()">🖼️ 图片节点</div>
     <div class="ctx-item" style="color:#333;padding:12px;" onclick="addNode('video');closeNodePicker()">🎬 视频节点</div>
-  </div>
-</div>
-
-<!-- 全屏编辑弹窗 -->
-<div class="fullscreen-edit" id="fullscreen-edit">
-  <div class="box">
-    <div class="title" id="fe-title">编辑输入</div>
-    <textarea id="fe-textarea" placeholder="在这里输入内容..."></textarea>
-    <div class="row">
-      <button class="btn-ghost" onclick="closeExpandEdit()">取消</button>
-      <button class="btn-primary" onclick="confirmExpandEdit()">确定</button>
-    </div>
   </div>
 </div>
 
