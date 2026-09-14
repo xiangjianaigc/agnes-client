@@ -4,25 +4,29 @@ let currentProjectId = null;
 let canvasScale = 1, canvasX = 0, canvasY = 0;
 let isPanning = false, panStartX, panStartY;
 
-// 每个模块对应一个素材列表（切换项目时清空）
 const assets = { chat: [], image: [], video: [] };
 let assetCounter = { chat: 1, image: 1, video: 1 };
 
-// 缓存最近一次拉取到的全部模型
 let allModelsCache = [];
 
-// 全屏编辑状态
-let feModule = null;
+// 正在生成中的项目（用于显示状态点 + 防止切换丢失结果）
+const generatingSet = new Set();
 
-// ===== 初始化 =====
+// 悬浮预览
+let previewEl = null;
+
+// ===== 启动 =====
 window.addEventListener('pywebviewready', async () => {
+  // 创建预览元素
+  previewEl = document.createElement('div');
+  previewEl.className = 'at-preview';
+  previewEl.innerHTML = '<img>';
+  document.body.appendChild(previewEl);
+
   const cfg = await window.pywebview.api.get_config();
   fillSettings(cfg);
-  if (!cfg.api_key) {
-    openSettings();
-  } else {
-    loadAllModelLists();
-  }
+  if (!cfg.api_key) openSettings();
+  else loadAllModelLists();
   switchModule('chat');
 });
 
@@ -33,7 +37,6 @@ function classifyModel(id) {
   if (/image|img|dall-?e|flux|stable-?diffusion|sd[-_]?\d|midjourney|seedream|kolors|jimeng.*image/i.test(s)) return 'image';
   return 'text';
 }
-
 function filterModelsByType(type) {
   return allModelsCache.filter(m => classifyModel(m) === type);
 }
@@ -45,12 +48,9 @@ async function loadAllModelLists() {
   if (!models.length) return;
   allModelsCache = models;
   const cfg = await window.pywebview.api.get_config();
-  const textModels = filterModelsByType('text');
-  const imageModels = filterModelsByType('image');
-  const videoModels = filterModelsByType('video');
-  populateModelSelect('chat-model', textModels, cfg.model_text);
-  populateModelSelect('img-model', imageModels, cfg.model_image);
-  populateModelSelect('vid-model', videoModels, cfg.model_video);
+  populateModelSelect('chat-model', filterModelsByType('text'), cfg.model_text);
+  populateModelSelect('img-model', filterModelsByType('image'), cfg.model_image);
+  populateModelSelect('vid-model', filterModelsByType('video'), cfg.model_video);
 }
 
 function populateModelSelect(id, models, current) {
@@ -67,7 +67,6 @@ function populateModelSelect(id, models, current) {
   });
   if (current && listToUse.includes(current)) sel.value = current;
   else if (old && listToUse.includes(old)) sel.value = old;
-  else if (current) sel.value = current;
 }
 
 // ===== 模块切换 =====
@@ -94,9 +93,17 @@ async function refreshProjects() {
   ps.forEach(p => {
     const el = document.createElement('div');
     el.className = 'proj' + (p.id === currentProjectId ? ' active' : '');
-    el.innerHTML = `<span class="name">${p.name}</span><span class="del">✕</span>`;
-    el.querySelector('.name').onclick = () => openProject(p.id);
-    el.onclick = (e) => { if (!e.target.classList.contains('del')) openProject(p.id); };
+    const isGenerating = generatingSet.has(p.id);
+    el.innerHTML = `
+      <span class="name">
+        <span class="status-dot ${isGenerating ? 'generating' : ''}"></span>
+        ${p.name}
+      </span>
+      <span class="del">✕</span>`;
+    el.onclick = (e) => {
+      if (e.target.classList.contains('del')) return;
+      openProject(p.id);
+    };
     el.querySelector('.del').onclick = async (e) => {
       e.stopPropagation();
       if (confirm('删除「' + p.name + '」？')) {
@@ -134,7 +141,7 @@ async function openProject(pid) {
   const p = res.project;
   clearCurrentView();
 
-  // 清空素材（每个任务独立）
+  // 清空素材
   if (currentModule === 'chat') { assets.chat = []; renderAssetList('chat'); }
   if (currentModule === 'image') { assets.image = []; renderAssetList('image'); }
   if (currentModule === 'video') { assets.video = []; renderAssetList('video'); }
@@ -143,7 +150,7 @@ async function openProject(pid) {
     (p.data.messages || []).forEach(m => appendMsg(m.role, m.content, m.images));
   } else if (p.type === 'image') {
     (p.data.generations || []).forEach(g => addImageCard(g.url));
-    document.getElementById('img-prompt').value = p.data.lastPrompt || '';
+    setEditorText('img-prompt', p.data.lastPrompt || '');
   } else if (p.type === 'video') {
     (p.data.tasks || []).forEach(t => addVideoCard(t));
   } else if (p.type === 'canvas') {
@@ -173,13 +180,14 @@ function clearCurrentView() {
   document.getElementById('vid-list').innerHTML = '';
   document.getElementById('vid-status').textContent = '';
   document.getElementById('nodes-layer').innerHTML = '';
-  document.getElementById('img-prompt').value = '';
-  document.getElementById('vid-prompt').value = '';
-  document.getElementById('chat-input').value = '';
+  setEditorText('img-prompt', '');
+  setEditorText('vid-prompt', '');
+  setEditorText('chat-input', '');
 }
 
 async function autoSave() {
   if (!currentProjectId) return;
+  const pid = currentProjectId;
   const data = {};
   if (currentModule === 'chat') {
     const msgs = [];
@@ -189,8 +197,7 @@ async function autoSave() {
       m.querySelectorAll('.msg-imgs img').forEach(img => imgs.push(img.src));
       msgs.push({
         role: m.classList.contains('user') ? 'user' : 'assistant',
-        content: content,
-        images: imgs
+        content: content, images: imgs
       });
     });
     data.messages = msgs;
@@ -198,7 +205,7 @@ async function autoSave() {
     const gens = [];
     document.querySelectorAll('#img-gallery img').forEach(img => gens.push({url: img.src}));
     data.generations = gens;
-    data.lastPrompt = document.getElementById('img-prompt').value;
+    data.lastPrompt = getEditorData('img-prompt').text;
   } else if (currentModule === 'video') {
     const tasks = [];
     document.querySelectorAll('#vid-list .vid-card').forEach(c => {
@@ -209,10 +216,8 @@ async function autoSave() {
     const nodes = [];
     document.querySelectorAll('#nodes-layer .node').forEach(n => {
       nodes.push({
-        title: n.dataset.title,
-        type: n.dataset.type,
-        x: parseInt(n.style.left) || 0,
-        y: parseInt(n.style.top) || 0,
+        title: n.dataset.title, type: n.dataset.type,
+        x: parseInt(n.style.left) || 0, y: parseInt(n.style.top) || 0,
         html: n.querySelector('.node-body').innerHTML,
         prompt: n.querySelector('textarea') ? n.querySelector('textarea').value : ''
       });
@@ -220,10 +225,28 @@ async function autoSave() {
     data.nodes = nodes;
     data.view = {x: canvasX, y: canvasY, scale: canvasScale};
   }
-  await window.pywebview.api.save_project_data(currentProjectId, data);
+  await window.pywebview.api.save_project_data(pid, data);
 }
 
-// ===== 素材管理（上传按钮永远保持 +）=====
+// 把某个项目数据追加（用于并发结果写入）
+async function appendToProject(pid, module, item) {
+  const res = await window.pywebview.api.get_project_data(pid);
+  if (res.status !== 'success') return;
+  const data = res.project.data || {};
+  if (module === 'image') {
+    data.generations = data.generations || [];
+    data.generations.push(item);
+  } else if (module === 'video') {
+    data.tasks = data.tasks || [];
+    data.tasks.push(item);
+  } else if (module === 'chat') {
+    data.messages = data.messages || [];
+    data.messages.push(item);
+  }
+  await window.pywebview.api.save_project_data(pid, data);
+}
+
+// ===== 素材管理 =====
 function renderAssetList(module) {
   const el = document.getElementById(module + '-assets');
   if (!el) return;
@@ -233,7 +256,11 @@ function renderAssetList(module) {
     const chip = document.createElement('div');
     chip.className = 'asset-chip';
     chip.title = a.name;
-    chip.innerHTML = `<img src="${a.base64}"><div class="rm" onclick="removeAsset('${module}', ${i})">✕</div>`;
+    chip.innerHTML = `<img src="${a.base64}"><div class="rm">✕</div>`;
+    chip.querySelector('.rm').onclick = () => removeAsset(module, i);
+    // 悬停预览
+    chip.onmouseenter = () => showPreview(a.base64, chip.getBoundingClientRect());
+    chip.onmouseleave = hidePreview;
     el.appendChild(chip);
   });
 }
@@ -248,18 +275,14 @@ async function handleUpload(module, fileList) {
   for (const f of fileList) {
     if (!f.type.startsWith('image/')) continue;
     const b64 = await fileToBase64(f);
-    assets[module].push({
-      id: assetCounter[module]++,
-      name: f.name,
-      base64: b64
-    });
+    assets[module].push({ id: assetCounter[module]++, name: f.name, base64: b64 });
   }
   renderAssetList(module);
 }
 
 document.getElementById('chat-ref').addEventListener('change', async e => {
   await handleUpload('chat', e.target.files);
-  e.target.value = '';  // 允许重复选择同一文件
+  e.target.value = '';
 });
 document.getElementById('img-ref').addEventListener('change', async e => {
   await handleUpload('image', e.target.files);
@@ -270,27 +293,91 @@ document.getElementById('vid-ref').addEventListener('change', async e => {
   e.target.value = '';
 });
 
-// ===== @ 素材弹窗 =====
-function bindAt(inputId, popupId, module) {
-  const input = document.getElementById(inputId);
+// ===== 输入区读写 =====
+function getEditorData(editorId) {
+  const editor = document.getElementById(editorId);
+  const images = [];
+  let text = '';
+  const processNode = (node) => {
+    if (node.nodeType === 3) { text += node.textContent; return; }
+    if (node.nodeType !== 1) return;
+    if (node.classList && node.classList.contains('at-chip')) {
+      const i = images.length;
+      images.push(node.dataset.base64);
+      text += `@[img:${i}]`;
+      return;
+    }
+    if (node.tagName === 'BR') { text += '\n'; return; }
+    const isBlock = ['DIV', 'P'].includes(node.tagName);
+    const startLen = text.length;
+    node.childNodes.forEach(processNode);
+    if (isBlock && text.length > startLen && !text.endsWith('\n')) text += '\n';
+  };
+  editor.childNodes.forEach(processNode);
+  return { text: text.replace(/\u00A0/g, ' ').trim(), images };
+}
+
+function setEditorText(editorId, text) {
+  const editor = document.getElementById(editorId);
+  editor.innerHTML = '';
+  if (text) editor.textContent = text;
+}
+
+function toggleExpand(editorId) {
+  const editor = document.getElementById(editorId);
+  editor.classList.toggle('expanded');
+}
+
+// ===== @ 素材弹窗 + chip 插入 =====
+let savedRange = null;
+
+function saveSelection(editorId) {
+  const editor = document.getElementById(editorId);
+  const sel = window.getSelection();
+  if (sel.rangeCount && editor.contains(sel.anchorNode)) {
+    savedRange = sel.getRangeAt(0).cloneRange();
+  }
+}
+
+function restoreSelection(editorId) {
+  const editor = document.getElementById(editorId);
+  if (!savedRange) { editor.focus(); return; }
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(savedRange);
+  editor.focus();
+}
+
+function bindAt(editorId, popupId, module) {
+  const editor = document.getElementById(editorId);
   const popup = document.getElementById(popupId);
-  input.addEventListener('input', () => {
-    const val = input.value;
-    const pos = input.selectionStart;
-    if (val[pos-1] === '@') {
+
+  ['keyup', 'mouseup', 'input', 'blur'].forEach(ev => {
+    editor.addEventListener(ev, () => saveSelection(editorId));
+  });
+
+  editor.addEventListener('input', () => {
+    const sel = window.getSelection();
+    if (!sel.rangeCount) { popup.classList.remove('show'); return; }
+    const range = sel.getRangeAt(0);
+    if (range.startContainer.nodeType !== 3) { popup.classList.remove('show'); return; }
+    const before = range.startContainer.textContent.slice(0, range.startOffset);
+    if (before.endsWith('@')) {
       const list = assets[module] || [];
-      if (!list.length) { popup.classList.remove('show'); return; }
+      if (!list.length) {
+        popup.innerHTML = '<div class="at-hint">还没有上传素材，先点上方 + 上传图片</div>';
+        popup.classList.add('show');
+        return;
+      }
       popup.innerHTML = '<div class="at-hint">选择要引用的素材</div>';
       list.forEach((a, i) => {
         const item = document.createElement('div');
         item.className = 'at-item';
         item.innerHTML = `<img src="${a.base64}"><span class="name">图片${i+1} · ${a.name}</span>`;
-        item.onclick = () => {
-          const before = val.slice(0, pos-1);
-          const after = val.slice(pos);
-          input.value = before + `@[img:${i}] ` + after;
+        item.onmousedown = (e) => {
+          e.preventDefault();
+          insertAtChip(editorId, a);
           popup.classList.remove('show');
-          input.focus();
         };
         popup.appendChild(item);
       });
@@ -299,30 +386,93 @@ function bindAt(inputId, popupId, module) {
       popup.classList.remove('show');
     }
   });
-  input.addEventListener('blur', () => setTimeout(() => popup.classList.remove('show'), 200));
+
+  // 回车提交
+  editor.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      if (e.isComposing) return;
+      if (e.shiftKey) return; // 换行
+      e.preventDefault();
+      if (module === 'chat') sendChat();
+      else if (module === 'image') doImage();
+      else if (module === 'video') doVideo();
+    }
+  });
+}
+
+function insertAtChip(editorId, asset) {
+  const editor = document.getElementById(editorId);
+  restoreSelection(editorId);
+
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return;
+  const range = sel.getRangeAt(0);
+
+  // 删掉光标前的 "@"
+  if (range.startContainer.nodeType === 3 && range.startOffset > 0) {
+    const before = range.startContainer.textContent.slice(0, range.startOffset);
+    if (before.endsWith('@')) {
+      range.setStart(range.startContainer, range.startOffset - 1);
+      range.deleteContents();
+    }
+  }
+
+  // 构造 chip
+  const chip = document.createElement('span');
+  chip.className = 'at-chip';
+  chip.contentEditable = 'false';
+  chip.dataset.base64 = asset.base64;
+  chip.dataset.name = asset.name;
+  chip.innerHTML = `<img src="${asset.base64}"><span>图片</span><span class="chip-remove">×</span>`;
+
+  chip.querySelector('.chip-remove').onmousedown = (e) => {
+    e.preventDefault();
+    chip.remove();
+    saveSelection(editorId);
+  };
+  chip.onmouseenter = () => showPreview(asset.base64, chip.getBoundingClientRect());
+  chip.onmouseleave = hidePreview;
+
+  range.insertNode(chip);
+
+  // 在 chip 后插入一个不可见的空格，方便光标
+  const space = document.createTextNode('\u00A0');
+  chip.after(space);
+  const newRange = document.createRange();
+  newRange.setStartAfter(space);
+  newRange.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(newRange);
+  saveSelection(editorId);
 }
 
 bindAt('chat-input', 'chat-at', 'chat');
 bindAt('img-prompt', 'img-at', 'image');
 bindAt('vid-prompt', 'vid-at', 'video');
 
-function parseAt(text, module) {
-  const list = assets[module] || [];
-  const images = [];
-  const regex = /@\[img:(\d+)\]/g;
-  const clean = text.replace(regex, (m, idx) => {
-    const i = parseInt(idx);
-    if (i >= 0 && i < list.length) images.push(list[i].base64);
-    return '';
-  }).replace(/\s+/g, ' ').trim();
-  return { text: clean, images };
+// ===== 悬浮预览 =====
+function showPreview(base64, rect) {
+  const img = previewEl.querySelector('img');
+  img.src = base64;
+  previewEl.classList.add('show');
+  const pw = previewEl.offsetWidth;
+  const ph = previewEl.offsetHeight;
+  let x = rect.left;
+  let y = rect.top - ph - 10;
+  if (y < 10) y = rect.bottom + 10;
+  if (x + pw > window.innerWidth - 10) x = window.innerWidth - pw - 10;
+  if (x < 10) x = 10;
+  previewEl.style.left = x + 'px';
+  previewEl.style.top = y + 'px';
+}
+function hidePreview() {
+  previewEl.classList.remove('show');
 }
 
 // ===== 对话 =====
 function appendMsg(role, content, images) {
   const div = document.createElement('div');
   div.className = 'msg ' + (role === 'user' ? 'user' : 'ai');
-  // 只把非 @[img:N] 部分作为文本
   const displayContent = (content || '').replace(/@\[img:\d+\]/g, '').replace(/\s+/g, ' ').trim();
   div.dataset.raw = content || '';
   div.textContent = displayContent || content || '';
@@ -343,16 +493,15 @@ function appendMsg(role, content, images) {
 }
 
 async function sendChat() {
-  const input = document.getElementById('chat-input');
-  const raw = input.value.trim();
-  if (!raw) return;
   if (!currentProjectId) await newTask();
+  const myPid = currentProjectId;
+  const data = getEditorData('chat-input');
+  const rawText = data.text;
+  const images = data.images;
+  if (!rawText && !images.length) return;
 
-  const { text, images } = parseAt(raw, 'chat');
-  if (!text && !images.length) return;
-
-  appendMsg('user', raw, images);
-  input.value = '';
+  appendMsg('user', rawText, images);
+  setEditorText('chat-input', '');
 
   const msgs = [];
   document.querySelectorAll('#chat-history .msg').forEach(m => {
@@ -368,42 +517,70 @@ async function sendChat() {
   document.getElementById('chat-history').appendChild(tmp);
   const btn = document.getElementById('chat-send');
   btn.disabled = true;
+
+  generatingSet.add(myPid);
+  refreshProjects();
   const model = document.getElementById('chat-model').value || null;
   const res = await window.pywebview.api.text_chat(msgs, images, model);
-  btn.disabled = false;
-  tmp.remove();
-  if (res.status === 'success') {
-    appendMsg('assistant', res.content);
-    await autoSave();
-  } else {
-    appendMsg('assistant', '[错误] ' + res.message);
-  }
-}
+  generatingSet.delete(myPid);
 
-document.getElementById('chat-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat(); }
-});
+  btn.disabled = false;
+  if (currentProjectId === myPid) tmp.remove();
+  else tmp.remove();
+
+  if (res.status === 'success') {
+    await appendToProject(myPid, 'chat', {role: 'assistant', content: res.content});
+    if (currentProjectId === myPid) {
+      appendMsg('assistant', res.content);
+    }
+  } else {
+    if (currentProjectId === myPid) appendMsg('assistant', '[错误] ' + res.message);
+  }
+  await refreshProjects();
+}
 
 // ===== 图片 =====
 async function doImage() {
   if (!currentProjectId) await newTask();
+  const myPid = currentProjectId;
+  const data = getEditorData('img-prompt');
+  if (!data.text) return alert('请输入提示词');
   const btn = document.getElementById('img-gen');
-  const raw = document.getElementById('img-prompt').value.trim();
-  if (!raw) return alert('请输入提示词');
-  const { text, images } = parseAt(raw, 'image');
-  if (!text) return alert('请输入提示词');
   btn.disabled = true; btn.textContent = '生成中...';
+
   const model = document.getElementById('img-model').value || null;
-  const res = await window.pywebview.api.generate_image(
-    text,
-    document.getElementById('img-size').value,
-    document.getElementById('img-ratio').value,
-    images.length ? images : null,
-    model
-  );
-  btn.disabled = false; btn.textContent = '生成';
-  if (res.status === 'success') { addImageCard(res.url); await autoSave(); }
-  else { alert('失败：' + res.message); }
+  const size = document.getElementById('img-size').value;
+  const ratio = document.getElementById('img-ratio').value;
+
+  generatingSet.add(myPid);
+  refreshProjects();
+
+  try {
+    const res = await window.pywebview.api.generate_image(data.text, size, ratio, data.images.length ? data.images : null, model);
+    if (res.status === 'success') {
+      await appendToProject(myPid, 'image', {url: res.url});
+      if (currentProjectId === myPid) {
+        const proj = await window.pywebview.api.get_project_data(myPid);
+        if (proj.status === 'success') {
+          const gallery = document.getElementById('img-gallery');
+          gallery.innerHTML = '';
+          (proj.project.data.generations || []).forEach(g => {
+            const img = document.createElement('img');
+            img.src = g.url;
+            img.onclick = () => window.open(g.url);
+            gallery.appendChild(img);
+          });
+          updateEmptyState();
+        }
+      }
+    } else {
+      if (currentProjectId === myPid) alert('失败：' + res.message);
+    }
+  } finally {
+    generatingSet.delete(myPid);
+    btn.disabled = false; btn.textContent = '生成';
+    refreshProjects();
+  }
 }
 
 function addImageCard(url) {
@@ -414,52 +591,72 @@ function addImageCard(url) {
   updateEmptyState();
 }
 
-document.getElementById('img-prompt').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); doImage(); }
-});
-
 // ===== 视频 =====
 async function doVideo() {
   if (!currentProjectId) await newTask();
+  const myPid = currentProjectId;
+  const data = getEditorData('vid-prompt');
+  if (!data.text) return alert('请输入描述');
+
   const btn = document.getElementById('vid-gen');
   const status = document.getElementById('vid-status');
-  const raw = document.getElementById('vid-prompt').value.trim();
-  if (!raw) return alert('请输入描述');
-  const { text, images } = parseAt(raw, 'video');
-  if (!text) return alert('请输入描述');
   btn.disabled = true; btn.textContent = '创建任务中...';
+
   const model = document.getElementById('vid-model').value || null;
   const mode = document.getElementById('vid-mode').value;
-  const createRes = await window.pywebview.api.create_video_task(
-    text, mode,
-    document.getElementById('vid-size').value,
-    document.getElementById('vid-ratio').value,
-    document.getElementById('vid-seconds').value,
-    images.length ? images : null,
-    model
-  );
-  if (createRes.status !== 'success') {
-    status.textContent = '创建失败：' + createRes.message;
+  const size = document.getElementById('vid-size').value;
+  const ratio = document.getElementById('vid-ratio').value;
+  const seconds = document.getElementById('vid-seconds').value;
+
+  generatingSet.add(myPid);
+  refreshProjects();
+
+  try {
+    const createRes = await window.pywebview.api.create_video_task(
+      data.text, mode, size, ratio, seconds,
+      data.images.length ? data.images : null, model
+    );
+    if (createRes.status !== 'success') {
+      if (currentProjectId === myPid) status.textContent = '创建失败：' + createRes.message;
+      return;
+    }
+    const r = createRes.raw;
+    const vid = r.video_id || r.id || r.task_id;
+    if (!vid) {
+      if (currentProjectId === myPid) status.textContent = '未获取任务ID：' + JSON.stringify(r);
+      return;
+    }
+    if (currentProjectId === myPid) {
+      status.textContent = '任务已创建 ' + vid + '，正在生成...';
+      btn.textContent = '生成中...';
+    }
+    const waitRes = await window.pywebview.api.wait_video(vid, model);
+    if (waitRes.status === 'success') {
+      const task = { prompt: data.text, url: waitRes.url, video_id: vid };
+      await appendToProject(myPid, 'video', task);
+      if (currentProjectId === myPid) {
+        status.textContent = '生成完成';
+        const proj = await window.pywebview.api.get_project_data(myPid);
+        if (proj.status === 'success') {
+          const list = document.getElementById('vid-list');
+          list.innerHTML = '';
+          (proj.project.data.tasks || []).forEach(t => {
+            const card = document.createElement('div');
+            card.className = 'vid-card';
+            card.dataset.task = JSON.stringify(t);
+            card.innerHTML = `${t.url ? `<video src="${t.url}" controls></video>` : '<div style="padding:20px;color:#999;">无视频地址</div>'}<div class="info">${t.prompt || ''}</div>`;
+            list.appendChild(card);
+          });
+          updateEmptyState();
+        }
+      }
+    } else {
+      if (currentProjectId === myPid) status.textContent = '失败：' + waitRes.message;
+    }
+  } finally {
+    generatingSet.delete(myPid);
     btn.disabled = false; btn.textContent = '生成';
-    return;
-  }
-  const r = createRes.raw;
-  const vid = r.video_id || r.id || r.task_id;
-  if (!vid) {
-    status.textContent = '未获取任务ID：' + JSON.stringify(r);
-    btn.disabled = false; btn.textContent = '生成';
-    return;
-  }
-  status.textContent = '任务已创建 ' + vid + '，正在生成...';
-  btn.textContent = '生成中...';
-  const waitRes = await window.pywebview.api.wait_video(vid, model);
-  btn.disabled = false; btn.textContent = '生成';
-  if (waitRes.status === 'success') {
-    status.textContent = '生成完成';
-    addVideoCard({ prompt: text, url: waitRes.url, video_id: vid });
-    await autoSave();
-  } else {
-    status.textContent = '失败：' + waitRes.message;
+    refreshProjects();
   }
 }
 
@@ -472,11 +669,7 @@ function addVideoCard(task) {
   updateEmptyState();
 }
 
-document.getElementById('vid-prompt').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); doVideo(); }
-});
-
-// ===== 画布 =====
+// ===== 画布（保持原样） =====
 const canvasWrap = document.getElementById('canvas-wrap');
 
 canvasWrap.addEventListener('mousedown', e => {
@@ -547,10 +740,9 @@ function renderNode(data) {
     inner = `
       <div class="node-tools">
         <button class="mini" onclick="nodeUploadImage(this)">📎 上传素材</button>
-        <button class="mini" onclick="nodeAtHint(this)">@ 引用素材</button>
       </div>
       <div class="node-assets"></div>
-      <textarea placeholder="输入提示词，可 @[img:0] 引用素材">${data.prompt || ''}</textarea>
+      <textarea placeholder="输入提示词">${data.prompt || ''}</textarea>
       <button onclick="nodeGenImage(this)">生成图片</button>`;
   } else if (data.type === 'image') {
     inner = `<div style="color:#888;font-size:12px;">图片节点</div>`;
@@ -630,28 +822,14 @@ function renderNodeAssets(node) {
   });
 }
 
-function nodeAtHint(btn) {
-  const node = btn.closest('.node');
-  const list = window.nodeAssets.get(node) || [];
-  if (!list.length) return alert('请先上传素材');
-  const hints = list.map((a, i) => `@[img:${i}] = ${a.name}`).join('\n');
-  alert('可用素材：\n' + hints);
-}
-
 async function nodeGenImage(btn) {
   const node = btn.closest('.node');
-  const raw = node.querySelector('textarea').value.trim();
-  if (!raw) return;
+  const prompt = node.querySelector('textarea').value.trim();
+  if (!prompt) return;
   const list = window.nodeAssets.get(node) || [];
-  const images = [];
-  const text = raw.replace(/@\[img:(\d+)\]/g, (m, idx) => {
-    const i = parseInt(idx);
-    if (i >= 0 && i < list.length) images.push(list[i].base64);
-    return '';
-  }).replace(/\s+/g, ' ').trim();
-  if (!text) return;
+  const images = list.map(a => a.base64);
   btn.disabled = true; btn.textContent = '生成中...';
-  const res = await window.pywebview.api.generate_image(text, '2K', '1:1', images.length ? images : null);
+  const res = await window.pywebview.api.generate_image(prompt, '2K', '1:1', images.length ? images : null);
   btn.disabled = false; btn.textContent = '生成图片';
   if (res.status === 'success') {
     let img = node.querySelector('.node-body > img');
@@ -667,28 +845,6 @@ async function saveCanvas() {
   if (!currentProjectId) { alert('请先新建画布任务'); return; }
   await autoSave();
   alert('已保存');
-}
-
-// ===== 全屏编辑 =====
-function expandEdit(module) {
-  feModule = module;
-  const map = { chat: 'chat-input', image: 'img-prompt', video: 'vid-prompt' };
-  const titles = { chat: '编辑对话内容', image: '编辑图片提示词', video: '编辑视频描述' };
-  const src = document.getElementById(map[module]);
-  document.getElementById('fe-textarea').value = src.value;
-  document.getElementById('fe-title').textContent = titles[module];
-  document.getElementById('fullscreen-edit').classList.add('show');
-  setTimeout(() => document.getElementById('fe-textarea').focus(), 100);
-}
-function closeExpandEdit() {
-  document.getElementById('fullscreen-edit').classList.remove('show');
-  feModule = null;
-}
-function confirmExpandEdit() {
-  const map = { chat: 'chat-input', image: 'img-prompt', video: 'vid-prompt' };
-  const val = document.getElementById('fe-textarea').value;
-  document.getElementById(map[feModule]).value = val;
-  closeExpandEdit();
 }
 
 // ===== 设置 =====
@@ -729,17 +885,13 @@ async function fetchModels() {
   }
   const models = res.models || [];
   allModelsCache = models;
-
   const textModels = filterModelsByType('text');
   const imageModels = filterModelsByType('image');
   const videoModels = filterModelsByType('video');
-
   status.textContent = `成功拉取 ${models.length} 个模型（文本 ${textModels.length} / 图片 ${imageModels.length} / 视频 ${videoModels.length}）`;
-
   fillSelectWithModels('set-model-text', textModels, document.getElementById('set-model-text').value);
   fillSelectWithModels('set-model-image', imageModels, document.getElementById('set-model-image').value);
   fillSelectWithModels('set-model-video', videoModels, document.getElementById('set-model-video').value);
-
   populateModelSelect('chat-model', textModels, document.getElementById('chat-model').value);
   populateModelSelect('img-model', imageModels, document.getElementById('img-model').value);
   populateModelSelect('vid-model', videoModels, document.getElementById('vid-model').value);
@@ -774,16 +926,11 @@ async function diagnose() {
     model_video: document.getElementById('set-model-video').value
   };
   await window.pywebview.api.save_config(cfg);
-
   const box = document.getElementById('diag-result');
   box.style.display = 'block';
   box.textContent = '诊断中...';
-
   const res = await window.pywebview.api.diagnose();
-  if (res.status !== 'success') {
-    box.textContent = '诊断失败：' + res.message;
-    return;
-  }
+  if (res.status !== 'success') { box.textContent = '诊断失败：' + res.message; return; }
   const info = res.info;
   box.textContent =
     '=== 诊断结果 ===\n' + info.result + '\n\n' +
@@ -820,9 +967,7 @@ async function saveSettings() {
     window._modelsLoaded = true;
     alert('已保存');
     closeSettings();
-  } else {
-    alert('保存失败');
-  }
+  } else alert('保存失败');
 }
 
 // ===== 工具 =====
